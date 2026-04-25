@@ -1,0 +1,21 @@
+macro unless(cond, body) {
+    if !cond { body; }
+}
+
+struct Pair { x: i32, y: i32 }
+
+fn max[T: Ord](a: T, b: T) -> T {
+    if a > b { return a; }
+    return b;
+}
+
+fn main() -> i32 {
+    let ch: Chan[i32] = chan(1);
+    send(ch, 42);
+    let ans: i32 = select {
+        recv(ch) => { 42; }
+        default => { 0; }
+    };
+    unless(ans == 42, { panic("bad"); });
+    return max(ans, 40);
+}

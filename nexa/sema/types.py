@@ -1,0 +1,40 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass(slots=True, frozen=True)
+class Type:
+    name: str
+    params: tuple[Type, ...] = field(default_factory=tuple)
+
+    def __str__(self) -> str:
+        if not self.params:
+            return self.name
+        return f"{self.name}[{', '.join(map(str, self.params))}]"
+
+
+I32 = Type("i32")
+BOOL = Type("bool")
+STR = Type("str")
+VOID = Type("void")
+
+
+BUILTINS = {
+    "i32": I32,
+    "bool": BOOL,
+    "str": STR,
+    "void": VOID,
+}
+
+
+def channel(inner: Type) -> Type:
+    return Type("Chan", (inner,))
+
+
+def type_var(name: str) -> Type:
+    return Type(f"${name}")
+
+
+def is_type_var(ty: Type) -> bool:
+    return ty.name.startswith("$")
