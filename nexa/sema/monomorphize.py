@@ -54,6 +54,11 @@ def monomorphize(module: ast.Module, callsites: list[GenericCallSite]) -> ast.Mo
                     rewrite_expr(c.channel)
                 if c.value:
                     rewrite_expr(c.value)
+                for s in c.body.stmts:
+                    rewrite_stmt(s)
+        elif isinstance(ex, ast.BlockExpr) and ex.block:
+            for s in ex.block.stmts:
+                rewrite_stmt(s)
 
     def rewrite_stmt(st: ast.Stmt) -> None:
         if isinstance(st, ast.LetStmt) and st.value:
@@ -70,6 +75,14 @@ def monomorphize(module: ast.Module, callsites: list[GenericCallSite]) -> ast.Mo
                 [rewrite_stmt(s) for s in st.else_block.stmts]
         elif isinstance(st, ast.WhileStmt):
             rewrite_expr(st.cond); [rewrite_stmt(s) for s in st.body.stmts]
+        elif isinstance(st, ast.ForStmt):
+            if st.init:
+                rewrite_stmt(st.init)
+            if st.cond:
+                rewrite_expr(st.cond)
+            if st.step:
+                rewrite_stmt(st.step)
+            [rewrite_stmt(s) for s in st.body.stmts]
         elif isinstance(st, ast.SpawnStmt):
             rewrite_expr(st.expr)
         elif isinstance(st, ast.Block):

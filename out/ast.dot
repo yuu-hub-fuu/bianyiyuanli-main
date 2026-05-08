@@ -6,6 +6,8 @@ n2 [label="Block"];
 n1 -> n2;
 n3 [label="LetStmt"];
 n2 -> n3;
-n4 [label="ReturnStmt"];
+n4 [label="ForStmt"];
 n2 -> n4;
+n5 [label="ReturnStmt"];
+n2 -> n5;
 }

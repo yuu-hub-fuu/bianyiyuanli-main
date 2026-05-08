@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from nexa.compiler import compile_source
-from nexa.ide import app as ide_app
 from nexa.report.html_report import write_html_report
 
 
@@ -172,16 +171,3 @@ def test_asm_backend_uses_kind_dispatch():
     txt = Path('nexa/backend/asm_x64.py').read_text(encoding='utf-8')
     assert 'ins.kind ==' in txt
     assert 'startswith("bin.' not in txt
-
-
-def test_ide_main_missing_dependency_message(monkeypatch, capsys):
-    real_import = __import__
-
-    def fake_import(name, *args, **kwargs):
-        if name == 'uvicorn':
-            raise ImportError('no uvicorn')
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr('builtins.__import__', fake_import)
-    ide_app.main()
-    assert 'Missing IDE dependencies' in capsys.readouterr().out

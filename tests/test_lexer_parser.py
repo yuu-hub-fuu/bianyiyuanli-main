@@ -39,3 +39,26 @@ def test_parser_error_recovery_missing_semi():
     diag = DiagnosticBag()
     Parser(Lexer(src, diag).scan(), diag).parse()
     assert any('缺少分号' in d.message for d in diag.items)
+
+
+def test_lexer_parser_for_break_continue():
+    src = '''
+fn main() -> i32 {
+  let s: i32 = 0;
+  for let i: i32 = 0; i < 3; i = i + 1 {
+    if i == 2 { break; }
+    continue;
+  }
+  return s;
+}
+'''
+    diag = DiagnosticBag()
+    tokens = Lexer(src, diag).scan()
+    kinds = {t.kind for t in tokens}
+    assert TokenKind.FOR in kinds
+    assert TokenKind.BREAK in kinds
+    assert TokenKind.CONTINUE in kinds
+    module = Parser(tokens, diag).parse()
+    assert not diag.has_errors()
+    fn = module.items[0]
+    assert any(type(stmt).__name__ == 'ForStmt' for stmt in fn.body.stmts)

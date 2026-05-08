@@ -44,12 +44,22 @@ class Lexer:
         out: list[Token] = []
         while self._peek() != "\0":
             ch = self._peek()
-            if ch in " \t\r\n":
+            if ch in " \t\r\n\ufeff":
                 self._advance()
                 continue
             if ch == "/" and self._peek(1) == "/":
                 while self._peek() not in ("\n", "\0"):
                     self._advance()
+                continue
+            if ch == "/" and self._peek(1) == "*":
+                start, line, col = self.i, self.line, self.col
+                self._advance(); self._advance()
+                while not (self._peek() == "*" and self._peek(1) == "/") and self._peek() != "\0":
+                    self._advance()
+                if self._peek() == "\0":
+                    self.diag.error(self._span(start, self.i, line, col), "块注释未闭合", code="E004")
+                else:
+                    self._advance(); self._advance()
                 continue
             start, line, col = self.i, self.line, self.col
             if ch.isalpha() or ch == "_":
@@ -62,9 +72,9 @@ class Lexer:
                 out.append(Token(kind, lex, self._span(start, self.i, line, col)))
                 continue
             if ch.isdigit():
-                lex = self._scan_number()
+                lex, is_float = self._scan_number()
                 self.tables.constant_table.add(lex)
-                out.append(Token(TokenKind.INT, lex, self._span(start, self.i, line, col)))
+                out.append(Token(TokenKind.FLOAT if is_float else TokenKind.INT, lex, self._span(start, self.i, line, col)))
                 continue
             if ch == '"':
                 tok = self._scan_string(start, line, col)
@@ -86,11 +96,17 @@ class Lexer:
             self._advance()
         return self.source[s:self.i]
 
-    def _scan_number(self) -> str:
+    def _scan_number(self) -> tuple[str, bool]:
         s = self.i
         while self._peek().isdigit():
             self._advance()
-        return self.source[s:self.i]
+        is_float = False
+        if self._peek() == "." and self._peek(1).isdigit():
+            is_float = True
+            self._advance()
+            while self._peek().isdigit():
+                self._advance()
+        return self.source[s:self.i], is_float
 
     def _scan_string(self, start: int, line: int, col: int) -> Token:
         self._advance()
@@ -119,7 +135,13 @@ class Lexer:
             "||": TokenKind.OROR,
             "->": TokenKind.ARROW,
             "=>": TokenKind.FATARROW,
+            "|>": TokenKind.PIPEGT,
+            "..": TokenKind.DOTDOT,
         }
+        if self._peek() == "." and self._peek(1) == "." and self._peek(2) == "=":
+            self._advance(); self._advance(); self._advance()
+            self.tables.delimiter_table.add("..=")
+            return Token(TokenKind.DOTDOTEQ, "..=", self._span(start, self.i, line, col))
         if two in pair:
             self._advance(); self._advance()
             self.tables.delimiter_table.add(two)

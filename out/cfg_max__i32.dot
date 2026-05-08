@@ -1,0 +1,11 @@
+digraph CFG {
+entry [shape=box,label="entry"];
+entry -> t24;
+entry -> fall_2;
+t24 [shape=box,label="t24"];
+fall_2 [shape=box,label="fall_2"];
+fall_2 -> t25;
+t25 [shape=box,label="t25"];
+t25 -> t26;
+t26 [shape=box,label="t26"];
+}

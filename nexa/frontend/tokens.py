@@ -7,6 +7,7 @@ from enum import Enum, auto
 class TokenKind(Enum):
     IDENT = auto()
     INT = auto()
+    FLOAT = auto()
     STRING = auto()
     TRUE = auto()
     FALSE = auto()
@@ -16,7 +17,14 @@ class TokenKind(Enum):
     IF = auto()
     ELSE = auto()
     WHILE = auto()
+    FOR = auto()
+    BREAK = auto()
+    CONTINUE = auto()
     STRUCT = auto()
+    ENUM = auto()
+    MATCH = auto()
+    IN = auto()
+    IMPORT = auto()
     MACRO = auto()
     SPAWN = auto()
     SELECT = auto()
@@ -48,6 +56,9 @@ class TokenKind(Enum):
     SEMI = auto()
     COMMA = auto()
     DOT = auto()
+    DOTDOT = auto()     # ..
+    DOTDOTEQ = auto()   # ..=
+    PIPEGT = auto()     # |>
     ARROW = auto()      # ->
     FATARROW = auto()   # =>
     EOF = auto()
@@ -60,7 +71,14 @@ KEYWORDS = {
     "if": TokenKind.IF,
     "else": TokenKind.ELSE,
     "while": TokenKind.WHILE,
+    "for": TokenKind.FOR,
+    "break": TokenKind.BREAK,
+    "continue": TokenKind.CONTINUE,
     "struct": TokenKind.STRUCT,
+    "enum": TokenKind.ENUM,
+    "match": TokenKind.MATCH,
+    "in": TokenKind.IN,
+    "import": TokenKind.IMPORT,
     "macro": TokenKind.MACRO,
     "spawn": TokenKind.SPAWN,
     "select": TokenKind.SELECT,

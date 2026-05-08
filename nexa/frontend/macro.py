@@ -52,6 +52,10 @@ class MacroExpander:
                 stmt.else_block = self._expand_block(stmt.else_block, env, depth)
         elif isinstance(stmt, ast.WhileStmt):
             stmt.body = self._expand_block(stmt.body, env, depth)
+        elif isinstance(stmt, ast.ForStmt):
+            if isinstance(stmt.init, ast.Block):
+                stmt.init = self._expand_block(stmt.init, env, depth)
+            stmt.body = self._expand_block(stmt.body, env, depth)
         elif isinstance(stmt, ast.Block):
             stmt = self._expand_block(stmt, env, depth)
         return [stmt]
@@ -127,6 +131,16 @@ class MacroExpander:
         elif isinstance(stmt, ast.WhileStmt):
             rename_expr(stmt.cond)
             self._gensym_stmt(stmt.body, macro_name, scopes)
+        elif isinstance(stmt, ast.ForStmt):
+            scopes.append({})
+            if stmt.init:
+                self._gensym_stmt(stmt.init, macro_name, scopes)
+            if stmt.cond:
+                rename_expr(stmt.cond)
+            if stmt.step:
+                self._gensym_stmt(stmt.step, macro_name, scopes)
+            self._gensym_stmt(stmt.body, macro_name, scopes)
+            scopes.pop()
 
     def _clone_expr(self, expr: ast.Expr, bind: dict[str, ast.Expr]) -> ast.Expr:
         if isinstance(expr, ast.NameExpr) and expr.name in bind:
@@ -162,6 +176,18 @@ class MacroExpander:
             return ast.IfStmt(stmt.span, self._clone_expr(stmt.cond, bind), self._clone_block(stmt.then_block, bind), self._clone_block(stmt.else_block, bind) if stmt.else_block else None)
         if isinstance(stmt, ast.WhileStmt):
             return ast.WhileStmt(stmt.span, self._clone_expr(stmt.cond, bind), self._clone_block(stmt.body, bind))
+        if isinstance(stmt, ast.ForStmt):
+            return ast.ForStmt(
+                stmt.span,
+                self._clone_stmt(stmt.init, bind) if stmt.init else None,
+                self._clone_expr(stmt.cond, bind) if stmt.cond else None,
+                self._clone_stmt(stmt.step, bind) if stmt.step else None,
+                self._clone_block(stmt.body, bind),
+            )
+        if isinstance(stmt, ast.BreakStmt):
+            return ast.BreakStmt(stmt.span)
+        if isinstance(stmt, ast.ContinueStmt):
+            return ast.ContinueStmt(stmt.span)
         if isinstance(stmt, ast.SpawnStmt):
             return ast.SpawnStmt(stmt.span, self._clone_expr(stmt.expr, bind))
         if isinstance(stmt, ast.Block):

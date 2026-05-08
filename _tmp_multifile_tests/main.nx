@@ -1,0 +1,1 @@
+import utils; fn main() -> i32 { return utils.add(20, 22); }

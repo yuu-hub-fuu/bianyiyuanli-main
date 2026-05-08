@@ -1,6 +1,6 @@
 # Nexa Compiler Project
 
-## 快速开始
+## Quick Start
 
 ```bash
 python -m pip install pytest
@@ -9,51 +9,69 @@ python nexa_cli.py example.nx --mode full --dump all --run --trace --report out/
 pytest -q
 ```
 
-## 语言特性徽章
+## Language Features
 
-- Core ✅（变量/表达式/if/while/符号表/四元式）
-- Struct ✅
-- Macro ⚠️ AST-level macro expansion with depth limit + teaching gensym
-- Generic ⚠️ monomorph demo（调用点实例化）
-- Select ⚠️ lowering 为 `br.ready + recv + default` 的非阻塞子集（仅教学运行时路径）
-- LLVM ⚠️ 仅支持线性整数子集（不支持 `if/while/select/chan/str` 的 HIR 控制流）
-- x86-64 ⚠️ teaching text emitter（可读目标代码）
+- Core: variables, expressions, functions, `if`, `while`, `for`, `break`, `continue`.
+- Structs, enums, and `match`: parsed, type-checked, lowered, and runnable in the VM.
+- Modern expressions: lambdas, string interpolation, pipe `|>`, dictionaries, ranges, and array slices.
+- Collections: `array.map/filter/reduce` accept lambda function values.
+- Macro expansion: AST-level macro expansion with depth limit and teaching gensym.
+- Generic functions: monomorphized demo path for call-site instantiation.
+- Select/channel subset: `br.ready + recv + default` lowering for the teaching runtime.
+- LLVM IR: supports HIR labels, jumps, branches, loops, channel runtime calls, bool/string constants, and integer operations.
+- x86-64: readable teaching text emitter.
 
-## 验收输出（CLI）
+## Standard Library
 
-`--dump tables` 或 `--dump all` 输出：
+Module-style builtins are available in VM run mode:
 
-- 关键字表
-- 界符表
-- 标识符表
-- 常量表
-- 符号表
-- 四元式表（HIR）
+- `str`: length, concat, contains, prefix/suffix checks, split/join, replace, substring, trim, case conversion, numeric parse/format.
+- `math`: integer `abs/max/min`, f64 `pow/sqrt/sin/cos`, `floor/ceil`, and `random`.
+- `array` / `collections`: length, push, pop, index lookup, contains, sort, reverse, and slice. Higher-order `map/filter/reduce` are type-registered but need future function-value support.
+- `os`: environment variables, safe `args/getcwd/chdir/sleep`, and non-terminating `exit` in the VM.
+- `fs` / `io`: read, write, append, exists, is-dir, mkdir, read-dir, and non-recursive remove. Paths are sandboxed to the current source file directory during `compile_source(..., run=True, source_path=...)`.
+- `time`: millisecond/nanosecond clock, sleep, and ISO formatting.
+- `json`: parse and stringify.
+- `testing`: `assert_eq`, `assert_true`, and `assert_false`.
+- `net`: signatures are reserved, but runtime calls are disabled in the safe VM.
 
-## 模式
+## CLI Output
 
-- `--mode core`：课程基础模式（稳定答辩路径）
-- `--mode full`：高分展示模式（宏/泛型/select/可视化）
+`--dump tables` or `--dump all` can show:
 
-## 运行模式（VM）
+- keyword/delimiter/identifier/constant tables
+- symbol table
+- HIR quadruples
+- CFG
+- ASM
+- LLVM IR with `--emit-llvm`
 
-`--run` 会使用 `nexa.vm.HIRVM` 执行 HIR，保证课程演示“可运行闭环”。
+## Modes
 
-`--trace` 可打印 VM 指令级 trace；`--report out/report.html` 可生成课程化 HTML 报告（词法/符号/四元式/CFG/运行结果/诊断，若存在则嵌入 AST/CFG SVG）。
+- `--mode core`: stable course-baseline mode.
+- `--mode full`: macro/generic/select visualization mode.
 
-## 图形界面
+## VM Run Mode
+
+`--run` executes optimized HIR with `nexa.vm.HIRVM`.
+
+`--trace` prints VM instruction trace when used with `--run`.
+
+`--report out/report.html` writes a teaching HTML report with lexical tables, symbols, HIR, CFG, run output, diagnostics, and optional SVG artifacts.
+
+## Desktop IDE
 
 ```bash
 python -m nexa.ide.app
 ```
 
-界面包含：源码区、HIR Table、Symbol Tree、Diagnostics Groups、Run Output、Trace Panel、CFG/ASM/Timeline。
+The tkinter IDE includes source editing, syntax highlighting, diagnostics, tokens, AST, symbols, HIR, CFG, ASM, LLVM, timeline, run output, trace, and report export.
 
-## 可视化导出
+## Graph Export
 
-编译时会输出 DOT 文件：
+Compilation with an export directory writes:
 
 - `out/ast.dot`
 - `out/cfg_<fn>.dot`
 
-安装 `graphviz` Python 包后会自动生成对应 SVG 文件。
+If the optional `graphviz` Python package is installed, matching SVG files are rendered next to the DOT files.

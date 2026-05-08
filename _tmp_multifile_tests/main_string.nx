@@ -1,0 +1,1 @@
+import "mathlib.nx"; fn main() -> i32 { return square(6); }

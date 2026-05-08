@@ -1,0 +1,11 @@
+
+        fn main() -> i32 {
+          fs.write_file("note.txt", "hello");
+          fs.append_file("note.txt", "!");
+          let text = fs.read_file("note.txt");
+          if fs.exists("note.txt") && str.len(text) == 6 {
+            return 1;
+          }
+          return 0;
+        }
+        

@@ -28,11 +28,11 @@ def main() -> int:
     args = ap.parse_args()
 
     src = args.source.read_text(encoding="utf-8")
-    res = compile_source(src, mode=args.mode, export_dir=args.export_dir, run=args.run, trace=args.trace and args.run)
+    res = compile_source(src, mode=args.mode, export_dir=args.export_dir, run=args.run, trace=args.trace and args.run, source_path=args.source)
 
     print("== TIMELINE ==")
     for st in res.timeline:
-        icon = {"ok": "✅", "warning": "⚠️", "failed": "❌", "skipped": "⏭️"}.get(st.status, "❔")
+        icon = {"ok": "[ok]", "warning": "[warn]", "failed": "[fail]", "skipped": "[skip]"}.get(st.status, "[?]")
         print(f"{icon} {st.name:<12} {st.detail}")
 
     for d in res.diagnostics:

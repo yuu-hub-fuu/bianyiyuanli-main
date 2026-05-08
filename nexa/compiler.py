@@ -55,7 +55,7 @@ class BuildResult:
     diagnostics: list[Diagnostic]
     artifacts: BuildArtifacts
     timeline: list[StageResult] = field(default_factory=list)
-    run_value: int | None = None
+    run_value: object | None = None
     run_stdout: list[str] = field(default_factory=list)
     vm_trace: list[VMFrame] = field(default_factory=list)
 
@@ -67,6 +67,8 @@ def _ast_dump(node: object, indent: int = 0) -> list[str]:
         for i in node.items:
             out.extend(_ast_dump(i, indent + 1))
         return out
+    if isinstance(node, ast.ImportDecl):
+        return [f"{pad}Import {node.path}"]
     if isinstance(node, ast.Function):
         out = [f"{pad}Function {node.name}"]
         for p in node.params:
@@ -78,6 +80,12 @@ def _ast_dump(node: object, indent: int = 0) -> list[str]:
         for f in node.fields:
             out.append(f"{pad}  Field {f.name}: {f.type_ref.name}")
         return out
+    if isinstance(node, ast.EnumDef):
+        out = [f"{pad}Enum {node.name}"]
+        for v in node.variants:
+            suffix = f"({v.payload.name})" if v.payload else ""
+            out.append(f"{pad}  Variant {v.name}{suffix}")
+        return out
     if isinstance(node, ast.Block):
         out = [f"{pad}Block"]
         for s in node.stmts:
@@ -86,7 +94,7 @@ def _ast_dump(node: object, indent: int = 0) -> list[str]:
     if isinstance(node, ast.LetStmt):
         return [f"{pad}Let {node.name}"]
     if isinstance(node, ast.AssignStmt):
-        return [f"{pad}Assign {node.target.name}"]
+        return [f"{pad}Assign {_expr_label(node.target)}"]
     if isinstance(node, ast.ReturnStmt):
         return [f"{pad}Return"]
     if isinstance(node, ast.IfStmt):
@@ -99,9 +107,53 @@ def _ast_dump(node: object, indent: int = 0) -> list[str]:
         out = [f"{pad}While"]
         out.extend(_ast_dump(node.body, indent + 1))
         return out
+    if isinstance(node, ast.ForStmt):
+        out = [f"{pad}For"]
+        if node.init:
+            out.extend(_ast_dump(node.init, indent + 1))
+        if node.cond:
+            out.append(f"{pad}  Cond")
+        if node.step:
+            out.extend(_ast_dump(node.step, indent + 1))
+        out.extend(_ast_dump(node.body, indent + 1))
+        return out
+    if isinstance(node, ast.ForInStmt):
+        out = [f"{pad}ForIn {node.name}"]
+        out.extend(_ast_dump(node.body, indent + 1))
+        return out
+    if isinstance(node, ast.BreakStmt):
+        return [f"{pad}Break"]
+    if isinstance(node, ast.ContinueStmt):
+        return [f"{pad}Continue"]
     if isinstance(node, ast.ExprStmt):
+        if isinstance(node.expr, ast.MatchExpr):
+            return [f"{pad}Match"]
         return [f"{pad}ExprStmt"]
     return [f"{pad}{type(node).__name__}"]
+
+
+def _expr_label(node: ast.Expr | None) -> str:
+    if isinstance(node, ast.NameExpr):
+        return node.name
+    if isinstance(node, ast.IndexExpr):
+        return f"{_expr_label(node.target)}[]"
+    if isinstance(node, ast.SliceExpr):
+        return f"{_expr_label(node.target)}[..]"
+    if isinstance(node, ast.FieldAccess):
+        return f"{_expr_label(node.target)}.{node.field}"
+    if isinstance(node, ast.ArrayLit):
+        return f"ArrayLit[{len(node.elements)}]"
+    if isinstance(node, ast.DictLit):
+        return f"DictLit[{len(node.entries)}]"
+    if isinstance(node, ast.RangeExpr):
+        return "Range"
+    if isinstance(node, ast.LambdaExpr):
+        return "Lambda"
+    if isinstance(node, ast.MatchExpr):
+        return "Match"
+    if isinstance(node, ast.StructLit):
+        return f"{node.name}{{...}}"
+    return type(node).__name__ if node is not None else "<missing>"
 
 
 def _hir_lines(hir_mod) -> list[str]:
@@ -233,6 +285,46 @@ def _suggestions(diag: DiagnosticBag) -> None:
             d.fixits.append("在此处插入 ';'")
         if "未声明" in d.message and not d.fixits:
             d.fixits.append("先使用 let 声明该变量")
+
+
+def _resolve_import_path(raw: str, base_dir: Path) -> Path:
+    path = Path(raw)
+    if path.suffix == "":
+        path = path.with_suffix(".nx")
+    if not path.is_absolute():
+        path = base_dir / path
+    return path.resolve()
+
+
+def _parse_imported_module(path: Path, diag: DiagnosticBag, seen: set[Path]) -> ast.Module:
+    if path in seen:
+        return ast.Module(Span(0, 0, 1, 1), [])
+    seen.add(path)
+    if not path.exists():
+        diag.error(Span(0, 0, 1, 1), f"import 找不到文件: {path}", code="E005")
+        return ast.Module(Span(0, 0, 1, 1), [])
+    source = path.read_text(encoding="utf-8")
+    tokens = Lexer(source, diag).scan()
+    module = Parser(tokens, diag).parse()
+    return _resolve_imports(module, diag, path, seen)
+
+
+def _resolve_imports(module: ast.Module, diag: DiagnosticBag, source_path: str | Path | None, seen: set[Path] | None = None) -> ast.Module:
+    base_dir = Path(source_path).resolve().parent if source_path else Path.cwd()
+    seen = seen or set()
+    if source_path:
+        seen.add(Path(source_path).resolve())
+
+    imported_items: list[object] = []
+    local_items: list[object] = []
+    for item in module.items:
+        if isinstance(item, ast.ImportDecl):
+            imported = _parse_imported_module(_resolve_import_path(item.path, base_dir), diag, seen)
+            imported_items.extend(i for i in imported.items if not isinstance(i, ast.ImportDecl))
+        else:
+            local_items.append(item)
+    module.items = imported_items + local_items
+    return module
 def compile_source(
     source: str,
     mode: str = "full",
@@ -240,6 +332,7 @@ def compile_source(
     run: bool = False,
     trace: bool = False,
     on_stage: Callable[[StageResult], object] | None = None,
+    source_path: str | Path | None = None,
 ) -> BuildResult:
     diag = DiagnosticBag()
     timeline: list[StageResult] = []
@@ -271,6 +364,8 @@ def compile_source(
 
     parser = Parser(tokens, diag)
     module = parser.parse()
+    if not diag.has_errors():
+        module = _resolve_imports(module, diag, source_path)
     artifacts.ast_text = "\n".join(_ast_dump(module))
     stage("Parser", "failed" if diag.has_errors() else "ok", f"items={len(module.items)}")
     if diag.has_errors():
@@ -373,7 +468,8 @@ def compile_source(
     vm_trace: list[VMFrame] = []
     if run and not diag.has_errors():
         try:
-            vm = HIRVM(hir_opt_mod)
+            runtime_root = Path(source_path).resolve().parent if source_path else Path.cwd()
+            vm = HIRVM(hir_opt_mod, runtime_root=runtime_root, argv=[str(source_path)] if source_path else [])
             if trace:
                 vm_res, vm_trace = vm.run_with_trace("main")
             else:

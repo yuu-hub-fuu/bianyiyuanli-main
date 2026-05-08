@@ -28,6 +28,11 @@ class IntLit(Expr):
 
 
 @dataclass(slots=True)
+class FloatLit(Expr):
+    value: float = 0.0
+
+
+@dataclass(slots=True)
 class BoolLit(Expr):
     value: bool = False
 
@@ -35,6 +40,11 @@ class BoolLit(Expr):
 @dataclass(slots=True)
 class StrLit(Expr):
     value: str = ""
+
+
+@dataclass(slots=True)
+class InterpolatedString(Expr):
+    parts: list[str | Expr] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -62,6 +72,62 @@ class CallExpr(Expr):
 
 
 @dataclass(slots=True)
+class LambdaParam(Node):
+    name: str
+    type_ref: TypeRef | None = None
+
+
+@dataclass(slots=True)
+class LambdaExpr(Expr):
+    params: list[LambdaParam] = field(default_factory=list)
+    body: Expr | Block | None = None
+    captures: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ArrayLit(Expr):
+    elements: list[Expr] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class DictLit(Expr):
+    entries: list[tuple[Expr, Expr]] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class RangeExpr(Expr):
+    start: Expr | None = None
+    end: Expr | None = None
+    inclusive: bool = False
+
+
+@dataclass(slots=True)
+class IndexExpr(Expr):
+    target: Expr | None = None
+    index: Expr | None = None
+
+
+@dataclass(slots=True)
+class SliceExpr(Expr):
+    target: Expr | None = None
+    start: Expr | None = None
+    end: Expr | None = None
+    inclusive: bool = False
+
+
+@dataclass(slots=True)
+class FieldAccess(Expr):
+    target: Expr | None = None
+    field: str = ""
+
+
+@dataclass(slots=True)
+class StructLit(Expr):
+    name: str = ""
+    fields: dict[str, Expr] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class SelectCase(Node):
     kind: str  # recv/send/default
     channel: Expr | None
@@ -80,6 +146,24 @@ class BlockExpr(Expr):
 
 
 @dataclass(slots=True)
+class Pattern(Node):
+    variant: str
+    binding: str | None = None
+
+
+@dataclass(slots=True)
+class MatchArm(Node):
+    pattern: Pattern
+    body: Block
+
+
+@dataclass(slots=True)
+class MatchExpr(Expr):
+    value: Expr | None = None
+    arms: list[MatchArm] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class Stmt(Node):
     pass
 
@@ -93,7 +177,7 @@ class LetStmt(Stmt):
 
 @dataclass(slots=True)
 class AssignStmt(Stmt):
-    target: NameExpr
+    target: Expr
     value: Expr
 
 
@@ -118,6 +202,31 @@ class IfStmt(Stmt):
 class WhileStmt(Stmt):
     cond: Expr
     body: Block
+
+
+@dataclass(slots=True)
+class ForStmt(Stmt):
+    init: Stmt | None
+    cond: Expr | None
+    step: Stmt | None
+    body: Block
+
+
+@dataclass(slots=True)
+class ForInStmt(Stmt):
+    name: str
+    iterable: Expr
+    body: Block
+
+
+@dataclass(slots=True)
+class BreakStmt(Stmt):
+    pass
+
+
+@dataclass(slots=True)
+class ContinueStmt(Stmt):
+    pass
 
 
 @dataclass(slots=True)
@@ -146,6 +255,25 @@ class Field(Node):
 class StructDef(Node):
     name: str
     fields: list[Field]
+
+
+@dataclass(slots=True)
+class EnumVariant(Node):
+    name: str
+    payload: TypeRef | None = None
+
+
+@dataclass(slots=True)
+class EnumDef(Node):
+    name: str
+    variants: list[EnumVariant]
+    generic_params: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ImportDecl(Node):
+    path: str
+    alias: str | None = None
 
 
 @dataclass(slots=True)
