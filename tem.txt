@@ -1,0 +1,113 @@
+== TIMELINE ==
+[OK]   Lexer        tokens=135
+[OK]   Parser       items=4
+[OK]   MacroExpand  enabled
+[OK]   Sema         symbols=7
+[OK]   Monomorphize enabled
+[OK]   Sema(redo)   symbols=10
+[OK]   HIR          instrs=51
+[OK]   Optimize     const-fold + dce
+[OK]   MIR          functions=2
+[OK]   RegAlloc     linear-scan
+[OK]   Backend      asm-fns=2
+== ASM ==
+-- main --
+; teaching pseudo x86-64, not ABI-complete
+global main
+main:
+  push rbp
+  mov rbp, rsp
+  sub rsp, 256
+entry:
+  mov r15, 1
+  mov rdi, r15
+  call chan
+  mov r15, rax
+  mov r14, r15
+  mov r15, 42
+  mov rdi, r14
+  mov rsi, r15
+  call rt_chan_send
+  mov r15, rax
+  mov rdi, r14
+  call rt_chan_ready
+  cmp rax, 0
+  jne t6
+t6:
+  mov rdi, r14
+  call rt_chan_recv
+  mov r15, rax
+  mov r15, 42
+  mov r14, r15
+  jmp t8
+fall_2:
+  jmp t7
+t7:
+  mov r15, 0
+  mov r14, r15
+t8:
+  mov r15, r14
+  mov r14, 42
+  mov rax, r15
+  cmp rax, r14
+  sete al
+  movzx rax, al
+  mov r13, rax
+  mov rax, r13
+  cmp rax, 0
+  sete al
+  movzx rax, al
+  mov r14, rax
+  cmp r14, 0
+  jne t16
+t16:
+  mov rdi, r13
+  call panic
+  mov r13, rax
+  jmp t18
+fall_8:
+  jmp t17
+t17:
+  jmp t18
+t18:
+  mov r13, 40
+  mov rdi, r15
+  mov rsi, r13
+  call max__i32
+  mov r13, rax
+  mov rax, r13
+  leave
+  ret
+
+-- max__i32 --
+; teaching pseudo x86-64, not ABI-complete
+global max__i32
+max__i32:
+  push rbp
+  mov rbp, rsp
+  sub rsp, 256
+entry:
+  mov r15, rdi
+  mov r14, rsi
+  mov rax, r15
+  cmp rax, r14
+  setg al
+  movzx rax, al
+  mov r13, rax
+  cmp r13, 0
+  jne t24
+t24:
+  mov rax, r15
+  leave
+  ret
+fall_2:
+  jmp t25
+t25:
+  jmp t26
+after_ret_5:
+  jmp t26
+t26:
+  mov rax, r14
+  leave
+  ret
+

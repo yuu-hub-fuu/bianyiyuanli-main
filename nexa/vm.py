@@ -92,6 +92,24 @@ class HIRVM:
                 env[ins.dst] = val(ins.args[0])
             elif op == HIRKind.MOVE and ins.dst and ins.args:
                 env[ins.dst] = val(ins.args[0])
+            elif op == HIRKind.STRUCT_NEW and ins.dst:
+                obj: dict[str, object] = {"__struct__": ins.op or ins.ty}
+                for i in range(0, len(ins.args), 2):
+                    if i + 1 < len(ins.args):
+                        obj[ins.args[i]] = val(ins.args[i + 1])
+                env[ins.dst] = obj
+            elif op == HIRKind.FIELD_GET and ins.dst and ins.args and ins.op:
+                obj = val(ins.args[0])
+                if not isinstance(obj, dict):
+                    raise RuntimeError(f"VM: field access on non-struct value {obj!r}")
+                if ins.op not in obj:
+                    raise RuntimeError(f"VM: missing field {ins.op}")
+                env[ins.dst] = obj[ins.op]
+            elif op == HIRKind.FIELD_SET and len(ins.args) == 2 and ins.op:
+                obj = val(ins.args[0])
+                if not isinstance(obj, dict):
+                    raise RuntimeError(f"VM: field assignment on non-struct value {obj!r}")
+                obj[ins.op] = val(ins.args[1])
             elif op == HIRKind.UNARY and ins.dst and ins.args:
                 r = int(val(ins.args[0]))
                 env[ins.dst] = -r if ins.op == "-" else (0 if r else 1)

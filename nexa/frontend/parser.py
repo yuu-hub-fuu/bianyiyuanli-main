@@ -150,7 +150,7 @@ class Parser:
             return self._parse_block()
 
         e = self._parse_expr()
-        if isinstance(e, ast.NameExpr) and self._match(TokenKind.EQ):
+        if isinstance(e, (ast.NameExpr, ast.FieldAccess)) and self._match(TokenKind.EQ):
             rhs = self._parse_expr()
             self._expect(TokenKind.SEMI, "缺少分号", fix="在赋值语句后插入 ';'")
             return ast.AssignStmt(e.span, e, rhs)
@@ -219,6 +219,28 @@ class Parser:
             lhs = ast.IntLit(tok.span, None, 0)
 
         while True:
+            if (
+                isinstance(lhs, ast.NameExpr)
+                and self._at(TokenKind.LBRACE)
+                and (self._peek(1).kind == TokenKind.RBRACE or (self._peek(1).kind == TokenKind.IDENT and self._peek(2).kind == TokenKind.COLON))
+            ):
+                self._advance()
+                fields: list[ast.FieldInit] = []
+                while not self._at(TokenKind.RBRACE) and not self._at(TokenKind.EOF):
+                    name = self._expect(TokenKind.IDENT, "期望字段名")
+                    self._expect(TokenKind.COLON, "字段初始化缺少 ':'")
+                    value = self._parse_expr()
+                    fields.append(ast.FieldInit(name.span, name.lexeme, value))
+                    if not self._match(TokenKind.COMMA):
+                        break
+                self._expect(TokenKind.RBRACE, "结构体字面量缺少 }")
+                lhs = ast.StructLit(tok.span, None, lhs.name, fields)
+                continue
+            if self._at(TokenKind.DOT):
+                dot = self._advance()
+                field = self._expect(TokenKind.IDENT, "期望字段名")
+                lhs = ast.FieldAccess(dot.span, None, lhs, field.lexeme)
+                continue
             if self._at(TokenKind.LPAREN):
                 self._advance()
                 args: list[ast.Expr] = []

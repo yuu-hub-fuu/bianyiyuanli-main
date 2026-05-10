@@ -43,6 +43,24 @@ class NameExpr(Expr):
 
 
 @dataclass(slots=True)
+class FieldInit(Node):
+    name: str
+    value: Expr
+
+
+@dataclass(slots=True)
+class StructLit(Expr):
+    name: str = ""
+    fields: list[FieldInit] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class FieldAccess(Expr):
+    base: Expr | None = None
+    field: str = ""
+
+
+@dataclass(slots=True)
 class UnaryExpr(Expr):
     op: str = ""
     rhs: Expr | None = None
@@ -93,7 +111,7 @@ class LetStmt(Stmt):
 
 @dataclass(slots=True)
 class AssignStmt(Stmt):
-    target: NameExpr
+    target: Expr
     value: Expr
 
 

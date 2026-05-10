@@ -39,7 +39,11 @@ class Lowerer:
         elif isinstance(st, ast.AssignStmt):
             src = self._lower_expr(st.value, hf)
             ty = st.value.inferred_type or "i32"
-            hf.instrs.append(HIRInstr(HIRKind.MOVE, dst=st.target.name, args=[src], ty=ty))
+            if isinstance(st.target, ast.NameExpr):
+                hf.instrs.append(HIRInstr(HIRKind.MOVE, dst=st.target.name, args=[src], ty=ty))
+            elif isinstance(st.target, ast.FieldAccess) and st.target.base:
+                base = self._lower_expr(st.target.base, hf)
+                hf.instrs.append(HIRInstr(HIRKind.FIELD_SET, args=[base, src], op=st.target.field, ty=ty, span=(st.span.line, st.span.col)))
         elif isinstance(st, ast.ExprStmt):
             self._lower_expr(st.expr, hf)
         elif isinstance(st, ast.ReturnStmt):
@@ -154,6 +158,19 @@ class Lowerer:
             t = self._tmp(); hf.instrs.append(HIRInstr(HIRKind.CONST, dst=t, args=[ex.value], ty="str", span=(ex.span.line, ex.span.col))); return t
         if isinstance(ex, ast.NameExpr):
             return ex.name
+        if isinstance(ex, ast.StructLit):
+            args: list[str] = []
+            for field in ex.fields:
+                value = self._lower_expr(field.value, hf)
+                args.extend([field.name, value])
+            t = self._tmp()
+            hf.instrs.append(HIRInstr(HIRKind.STRUCT_NEW, dst=t, args=args, op=ex.name, ty=ex.inferred_type or ex.name, span=(ex.span.line, ex.span.col)))
+            return t
+        if isinstance(ex, ast.FieldAccess) and ex.base:
+            base = self._lower_expr(ex.base, hf)
+            t = self._tmp()
+            hf.instrs.append(HIRInstr(HIRKind.FIELD_GET, dst=t, args=[base], op=ex.field, ty=ex.inferred_type or "i32", span=(ex.span.line, ex.span.col)))
+            return t
         if isinstance(ex, ast.BlockExpr) and ex.block:
             t = self._tmp()
             zero = self._tmp(); hf.instrs.append(HIRInstr(HIRKind.CONST, dst=zero, args=["0"], ty=ex.inferred_type or "i32", span=(ex.span.line, ex.span.col)))

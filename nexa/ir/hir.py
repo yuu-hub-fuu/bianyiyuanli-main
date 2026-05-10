@@ -19,6 +19,9 @@ class HIRKind(Enum):
     BRANCH_READY = auto()
     SPAWN = auto()
     SELECT = auto()
+    STRUCT_NEW = auto()
+    FIELD_GET = auto()
+    FIELD_SET = auto()
 
 
 @dataclass(slots=True)

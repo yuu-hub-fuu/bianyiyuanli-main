@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from nexa.ir.hir import HIRInstr, HIRKind, HIRModule
 
 
-_UNSUPPORTED = {HIRKind.SPAWN}
+_UNSUPPORTED = {HIRKind.SPAWN, HIRKind.STRUCT_NEW, HIRKind.FIELD_GET, HIRKind.FIELD_SET}
 
 
 @dataclass(slots=True)

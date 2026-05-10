@@ -118,6 +118,31 @@ def test_typed_hir_kind_driven():
     assert 'MOVE' in kinds
 
 
+def test_struct_literal_field_access_and_assignment_run_in_vm():
+    src = '''
+struct Pair { x: i32, y: i32 }
+fn main() -> i32 {
+  let p: Pair = Pair { x: 1, y: 2 };
+  p.x = p.x + 4;
+  return p.x + p.y;
+}
+'''
+    res = compile_source(src, mode='core', run=True)
+    assert all(d.level != 'error' for d in res.diagnostics)
+    assert res.run_value == 7
+    assert res.artifacts.hir_opt is not None
+    kinds = {i.kind.name for i in res.artifacts.hir_opt.functions[0].instrs}
+    assert {'STRUCT_NEW', 'FIELD_GET', 'FIELD_SET'} <= kinds
+
+
+def test_struct_literal_reports_missing_and_unknown_fields():
+    src = 'struct Pair { x: i32, y: i32 } fn main() -> i32 { let p: Pair = Pair { x: 1, z: 2 }; return 0; }'
+    res = compile_source(src, mode='core')
+    messages = '\n'.join(d.message for d in res.diagnostics)
+    assert '没有字段 z' in messages
+    assert '缺少字段 y' in messages
+
+
 def test_llvm_emits_if_control_flow():
     src = 'fn main() -> i32 { let a: i32 = 1; if a > 0 { a = 2; } return a; }'
     res = compile_source(src, mode='core')
