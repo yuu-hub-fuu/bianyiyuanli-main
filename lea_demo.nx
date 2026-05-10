@@ -1,0 +1,11 @@
+fn mul3(a: i32) -> i32 {
+    let y: i32 = a * 3;
+    return y;
+}
+
+fn main() -> i32 {
+    let a: i32 = 3;
+    let ans: i32 = mul3(a);
+    print(ans);
+    return ans;
+}

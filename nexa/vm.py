@@ -84,7 +84,10 @@ class HIRVM:
                 try:
                     return int(x)
                 except Exception:
-                    return x
+                    try:
+                        return float(x)
+                    except Exception:
+                        return x
 
             def num(x: object) -> int | float:
                 return x if isinstance(x, float) else int(x)

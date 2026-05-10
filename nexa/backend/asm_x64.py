@@ -61,6 +61,32 @@ def _is_float(ty: str | None) -> bool:
     return ty == "f64"
 
 
+def _int_literal(value: str) -> int | None:
+    if value.isdigit() or (value.startswith("-") and value[1:].isdigit()):
+        return int(value)
+    return None
+
+
+def _float_literal(value: str) -> float | None:
+    try:
+        parsed = float(value)
+    except ValueError:
+        return None
+    return parsed if "." in value or "e" in value.lower() else None
+
+
+def _is_power_of_two(value: int) -> bool:
+    return value > 0 and (value & (value - 1)) == 0
+
+
+def _shift_for_power_of_two(value: int) -> int:
+    return value.bit_length() - 1
+
+
+def _disp(value: int) -> str:
+    return f"+{value}" if value >= 0 else str(value)
+
+
 def asm_name(nexa_name: str) -> str:
     """Mangle a Nexa function name to its asm-level symbol.
 
@@ -163,6 +189,10 @@ class _FunctionContext:
     def type_of(self, name: str) -> str:
         if name in self.slot_types:
             return self.slot_types[name]
+        if _float_literal(name) is not None:
+            return "f64"
+        if _int_literal(name) is not None:
+            return "i64"
         # Numeric literals threaded directly into args have no slot type.
         return "i64"
 
@@ -286,6 +316,10 @@ def _emit_const(ctx: _FunctionContext, ins: MIRInstr) -> None:
         value = int(raw)
     except ValueError:
         value = 0
+    if value == 0:
+        ctx.body.append("    xor rax, rax")
+        ctx.body.append(f"    mov {ctx.loc(ins.dst)}, rax")
+        return
     ctx.body.append(f"    mov rax, {value}")
     ctx.body.append(f"    mov {ctx.loc(ins.dst)}, rax")
 
@@ -294,6 +328,8 @@ def _emit_move(ctx: _FunctionContext, ins: MIRInstr) -> None:
     if not ins.dst or not ins.args:
         return
     src = ins.args[0]
+    if ins.dst == src:
+        return
     _emit_load(ctx, "rax", src)
     ctx.body.append(f"    mov {ctx.loc(ins.dst)}, rax")
     if src in ctx.str_temps:
@@ -379,11 +415,57 @@ def _emit_bin(ctx: _FunctionContext, ins: MIRInstr) -> None:
         return
 
     _emit_load(ctx, "rax", a)
-    if op in {"+", "-", "*"}:
-        mnem = {"+": "add", "-": "sub", "*": "imul"}[op]
-        _emit_load(ctx, "rcx", b)
-        ctx.body.append(f"    {mnem} rax, rcx")
+    aval = _int_literal(a)
+    bval = _int_literal(b)
+    if op == "+":
+        if bval == 0:
+            pass
+        elif aval == 0:
+            _emit_load(ctx, "rax", b)
+        elif bval is not None:
+            ctx.body.append(f"    lea rax, [rax{_disp(bval)}]")
+        elif aval is not None:
+            _emit_load(ctx, "rax", b)
+            ctx.body.append(f"    lea rax, [rax{_disp(aval)}]")
+        else:
+            _emit_load(ctx, "rcx", b)
+            ctx.body.append("    lea rax, [rax+rcx]")
+    elif op == "-":
+        if bval == 0:
+            pass
+        elif bval is not None:
+            ctx.body.append(f"    lea rax, [rax{_disp(-bval)}]")
+        else:
+            _emit_load(ctx, "rcx", b)
+            ctx.body.append("    sub rax, rcx")
+    elif op == "*":
+        literal = bval
+        value_src = a
+        if literal is None and aval is not None:
+            literal = aval
+            value_src = b
+            _emit_load(ctx, "rax", value_src)
+        if literal == 0:
+            ctx.body.append("    xor rax, rax")
+        elif literal == 1:
+            pass
+        elif literal == 2:
+            ctx.body.append("    lea rax, [rax+rax]")
+        elif literal == 3:
+            ctx.body.append("    lea rax, [rax+rax*2]")
+        elif literal == 5:
+            ctx.body.append("    lea rax, [rax+rax*4]")
+        elif literal == 9:
+            ctx.body.append("    lea rax, [rax+rax*8]")
+        elif literal is not None and _is_power_of_two(literal):
+            ctx.body.append(f"    shl rax, {_shift_for_power_of_two(literal)}")
+        else:
+            _emit_load(ctx, "rcx", b)
+            ctx.body.append("    imul rax, rcx")
     elif op == "/":
+        if bval == 1:
+            ctx.body.append(f"    mov {ctx.loc(ins.dst)}, rax")
+            return
         _emit_load(ctx, "rcx", b)
         ctx.body.append("    cqo")
         ctx.body.append("    idiv rcx")
@@ -393,25 +475,28 @@ def _emit_bin(ctx: _FunctionContext, ins: MIRInstr) -> None:
         ctx.body.append("    idiv rcx")
         ctx.body.append("    mov rax, rdx")
     elif op in _SETCC:
-        _emit_load(ctx, "rcx", b)
-        ctx.body.append("    cmp rax, rcx")
+        if bval == 0:
+            ctx.body.append("    test rax, rax")
+        else:
+            _emit_load(ctx, "rcx", b)
+            ctx.body.append("    cmp rax, rcx")
         ctx.body.append(f"    {_SETCC[op]} al")
         ctx.body.append("    movzx rax, al")
     elif op == "&&":
         _emit_load(ctx, "rcx", b)
-        ctx.body.append("    cmp rax, 0")
+        ctx.body.append("    test rax, rax")
         ctx.body.append("    setne al")
         ctx.body.append("    movzx rax, al")
-        ctx.body.append("    cmp rcx, 0")
+        ctx.body.append("    test rcx, rcx")
         ctx.body.append("    setne cl")
         ctx.body.append("    movzx rcx, cl")
         ctx.body.append("    and rax, rcx")
     elif op == "||":
         _emit_load(ctx, "rcx", b)
-        ctx.body.append("    cmp rax, 0")
+        ctx.body.append("    test rax, rax")
         ctx.body.append("    setne al")
         ctx.body.append("    movzx rax, al")
-        ctx.body.append("    cmp rcx, 0")
+        ctx.body.append("    test rcx, rcx")
         ctx.body.append("    setne cl")
         ctx.body.append("    movzx rcx, cl")
         ctx.body.append("    or rax, rcx")
