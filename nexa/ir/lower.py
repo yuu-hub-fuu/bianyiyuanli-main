@@ -44,6 +44,10 @@ class Lowerer:
             elif isinstance(st.target, ast.FieldAccess) and st.target.base:
                 base = self._lower_expr(st.target.base, hf)
                 hf.instrs.append(HIRInstr(HIRKind.FIELD_SET, args=[base, src], op=st.target.field, ty=ty, span=(st.span.line, st.span.col)))
+            elif isinstance(st.target, ast.IndexExpr) and st.target.base and st.target.index:
+                base = self._lower_expr(st.target.base, hf)
+                index = self._lower_expr(st.target.index, hf)
+                hf.instrs.append(HIRInstr(HIRKind.ARRAY_SET, args=[base, index, src], ty=ty, span=(st.span.line, st.span.col)))
         elif isinstance(st, ast.ExprStmt):
             self._lower_expr(st.expr, hf)
         elif isinstance(st, ast.ReturnStmt):
@@ -152,6 +156,8 @@ class Lowerer:
     def _lower_expr(self, ex: ast.Expr, hf: HIRFunction) -> str:
         if isinstance(ex, ast.IntLit):
             t = self._tmp(); hf.instrs.append(HIRInstr(HIRKind.CONST, dst=t, args=[str(ex.value)], ty="i32", span=(ex.span.line, ex.span.col))); return t
+        if isinstance(ex, ast.FloatLit):
+            t = self._tmp(); hf.instrs.append(HIRInstr(HIRKind.CONST, dst=t, args=[repr(ex.value)], ty="f64", span=(ex.span.line, ex.span.col))); return t
         if isinstance(ex, ast.BoolLit):
             t = self._tmp(); hf.instrs.append(HIRInstr(HIRKind.CONST, dst=t, args=["1" if ex.value else "0"], ty="bool", span=(ex.span.line, ex.span.col))); return t
         if isinstance(ex, ast.StrLit):
@@ -170,6 +176,17 @@ class Lowerer:
             base = self._lower_expr(ex.base, hf)
             t = self._tmp()
             hf.instrs.append(HIRInstr(HIRKind.FIELD_GET, dst=t, args=[base], op=ex.field, ty=ex.inferred_type or "i32", span=(ex.span.line, ex.span.col)))
+            return t
+        if isinstance(ex, ast.ArrayLit):
+            args = [self._lower_expr(item, hf) for item in ex.items]
+            t = self._tmp()
+            hf.instrs.append(HIRInstr(HIRKind.ARRAY_NEW, dst=t, args=args, ty=ex.inferred_type or "Array[i32]", span=(ex.span.line, ex.span.col)))
+            return t
+        if isinstance(ex, ast.IndexExpr) and ex.base and ex.index:
+            base = self._lower_expr(ex.base, hf)
+            index = self._lower_expr(ex.index, hf)
+            t = self._tmp()
+            hf.instrs.append(HIRInstr(HIRKind.ARRAY_GET, dst=t, args=[base, index], ty=ex.inferred_type or "i32", span=(ex.span.line, ex.span.col)))
             return t
         if isinstance(ex, ast.BlockExpr) and ex.block:
             t = self._tmp()

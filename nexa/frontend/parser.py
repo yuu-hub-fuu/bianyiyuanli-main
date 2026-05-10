@@ -150,7 +150,7 @@ class Parser:
             return self._parse_block()
 
         e = self._parse_expr()
-        if isinstance(e, (ast.NameExpr, ast.FieldAccess)) and self._match(TokenKind.EQ):
+        if isinstance(e, (ast.NameExpr, ast.FieldAccess, ast.IndexExpr)) and self._match(TokenKind.EQ):
             rhs = self._parse_expr()
             self._expect(TokenKind.SEMI, "缺少分号", fix="在赋值语句后插入 ';'")
             return ast.AssignStmt(e.span, e, rhs)
@@ -196,6 +196,8 @@ class Parser:
         tok = self._advance()
         if tok.kind == TokenKind.INT:
             lhs: ast.Expr = ast.IntLit(tok.span, None, int(tok.lexeme))
+        elif tok.kind == TokenKind.FLOAT:
+            lhs = ast.FloatLit(tok.span, None, float(tok.lexeme))
         elif tok.kind == TokenKind.TRUE:
             lhs = ast.BoolLit(tok.span, None, True)
         elif tok.kind == TokenKind.FALSE:
@@ -214,6 +216,15 @@ class Parser:
             self._expect(TokenKind.RPAREN, "缺少 )")
         elif tok.kind == TokenKind.LBRACE:
             lhs = ast.BlockExpr(tok.span, None, self._parse_block_after_lbrace(tok.span))
+        elif tok.kind == TokenKind.LBRACKET:
+            items: list[ast.Expr] = []
+            if not self._at(TokenKind.RBRACKET):
+                while True:
+                    items.append(self._parse_expr())
+                    if not self._match(TokenKind.COMMA):
+                        break
+            self._expect(TokenKind.RBRACKET, "数组字面量缺少 ]")
+            lhs = ast.ArrayLit(tok.span, None, items)
         else:
             self.diag.error(tok.span, f"非法表达式起始: {tok.kind.name}")
             lhs = ast.IntLit(tok.span, None, 0)
@@ -240,6 +251,12 @@ class Parser:
                 dot = self._advance()
                 field = self._expect(TokenKind.IDENT, "期望字段名")
                 lhs = ast.FieldAccess(dot.span, None, lhs, field.lexeme)
+                continue
+            if self._at(TokenKind.LBRACKET):
+                lb = self._advance()
+                index = self._parse_expr()
+                self._expect(TokenKind.RBRACKET, "索引表达式缺少 ]")
+                lhs = ast.IndexExpr(lb.span, None, lhs, index)
                 continue
             if self._at(TokenKind.LPAREN):
                 self._advance()

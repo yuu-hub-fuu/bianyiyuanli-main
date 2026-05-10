@@ -93,6 +93,14 @@ class MacroExpander:
             elif isinstance(expr, ast.FieldAccess):
                 if expr.base:
                     rename_expr(expr.base)
+            elif isinstance(expr, ast.ArrayLit):
+                for item in expr.items:
+                    rename_expr(item)
+            elif isinstance(expr, ast.IndexExpr):
+                if expr.base:
+                    rename_expr(expr.base)
+                if expr.index:
+                    rename_expr(expr.index)
             elif isinstance(expr, ast.SelectExpr):
                 for c in expr.cases:
                     if c.channel:
@@ -150,6 +158,10 @@ class MacroExpander:
             return ast.StructLit(expr.span, expr.inferred_type, expr.name, [ast.FieldInit(f.span, f.name, self._clone_expr(f.value, bind)) for f in expr.fields])
         if isinstance(expr, ast.FieldAccess):
             return ast.FieldAccess(expr.span, expr.inferred_type, self._clone_expr(expr.base, bind) if expr.base else None, expr.field)
+        if isinstance(expr, ast.ArrayLit):
+            return ast.ArrayLit(expr.span, expr.inferred_type, [self._clone_expr(item, bind) for item in expr.items])
+        if isinstance(expr, ast.IndexExpr):
+            return ast.IndexExpr(expr.span, expr.inferred_type, self._clone_expr(expr.base, bind) if expr.base else None, self._clone_expr(expr.index, bind) if expr.index else None)
         if isinstance(expr, ast.SelectExpr):
             cases = [ast.SelectCase(c.span, c.kind, self._clone_expr(c.channel, bind) if c.channel else None,
                                     self._clone_expr(c.value, bind) if c.value else None,

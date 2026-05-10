@@ -28,6 +28,11 @@ class IntLit(Expr):
 
 
 @dataclass(slots=True)
+class FloatLit(Expr):
+    value: float = 0.0
+
+
+@dataclass(slots=True)
 class BoolLit(Expr):
     value: bool = False
 
@@ -58,6 +63,17 @@ class StructLit(Expr):
 class FieldAccess(Expr):
     base: Expr | None = None
     field: str = ""
+
+
+@dataclass(slots=True)
+class ArrayLit(Expr):
+    items: list[Expr] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class IndexExpr(Expr):
+    base: Expr | None = None
+    index: Expr | None = None
 
 
 @dataclass(slots=True)

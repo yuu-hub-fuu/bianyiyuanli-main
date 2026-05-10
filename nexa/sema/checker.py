@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from nexa.frontend import ast
 from nexa.frontend.diagnostics import DiagnosticBag
 from .symbols import ScopeStack, Symbol
-from .types import BOOL, BUILTINS, I32, STR, Type, VOID, channel, is_type_var, type_var
+from .types import BOOL, BUILTINS, F64, I32, STR, Type, VOID, array, channel, is_type_var, type_var
 
 
 @dataclass(slots=True)
@@ -125,6 +125,9 @@ class Checker:
         if isinstance(expr, ast.IntLit):
             expr.inferred_type = str(I32)
             return I32
+        if isinstance(expr, ast.FloatLit):
+            expr.inferred_type = str(F64)
+            return F64
         if isinstance(expr, ast.BoolLit):
             expr.inferred_type = str(BOOL)
             return BOOL
@@ -143,6 +146,10 @@ class Checker:
             return self._check_struct_lit(expr, owner_fn)
         if isinstance(expr, ast.FieldAccess) and expr.base:
             return self._check_field_access(expr, owner_fn)
+        if isinstance(expr, ast.ArrayLit):
+            return self._check_array_lit(expr, owner_fn)
+        if isinstance(expr, ast.IndexExpr):
+            return self._check_index(expr, owner_fn)
         if isinstance(expr, ast.BlockExpr) and expr.block:
             self.scopes.push()
             last_ty = VOID
@@ -168,10 +175,10 @@ class Checker:
                 expr.inferred_type = str(BOOL)
                 return BOOL
             if expr.op == "-":
-                if rhs != I32:
-                    self.diag.error(expr.span, "负号运算需要 i32")
-                expr.inferred_type = str(I32)
-                return I32
+                if rhs not in {I32, F64}:
+                    self.diag.error(expr.span, "负号运算需要 i32 或 f64")
+                expr.inferred_type = str(rhs)
+                return rhs
         if isinstance(expr, ast.BinaryExpr):
             return self._check_binary(expr, owner_fn)
         if isinstance(expr, ast.CallExpr):
@@ -217,6 +224,33 @@ class Checker:
         expr.inferred_type = str(field_ty)
         return field_ty
 
+    def _check_array_lit(self, expr: ast.ArrayLit, owner_fn: ast.Function) -> Type:
+        if not expr.items:
+            self.diag.error(expr.span, "空数组字面量暂时无法推断元素类型")
+            expr.inferred_type = str(array(I32))
+            return array(I32)
+        item_tys = [self._check_expr(item, owner_fn) for item in expr.items]
+        first = item_tys[0]
+        for ty in item_tys[1:]:
+            if ty != first:
+                self.diag.error(expr.span, f"数组元素类型必须一致: {first} vs {ty}")
+        arr_ty = array(first)
+        expr.inferred_type = str(arr_ty)
+        return arr_ty
+
+    def _check_index(self, expr: ast.IndexExpr, owner_fn: ast.Function) -> Type:
+        base_ty = self._check_expr(expr.base, owner_fn)
+        idx_ty = self._check_expr(expr.index, owner_fn)
+        if idx_ty != I32:
+            self.diag.error(expr.span, f"数组索引必须是 i32，实际 {idx_ty}")
+        if base_ty.name != "Array" or not base_ty.params:
+            self.diag.error(expr.span, f"类型 {base_ty} 不支持索引访问")
+            expr.inferred_type = str(I32)
+            return I32
+        item_ty = base_ty.params[0]
+        expr.inferred_type = str(item_ty)
+        return item_ty
+
     def _check_select(self, expr: ast.SelectExpr, owner_fn: ast.Function) -> Type:
         recv_cases = [c for c in expr.cases if c.kind == "recv"]
         send_cases = [c for c in expr.cases if c.kind == "send"]
@@ -260,8 +294,14 @@ class Checker:
         lt = self._check_expr(expr.lhs, owner_fn)
         rt = self._check_expr(expr.rhs, owner_fn)
         if expr.op in {"+", "-", "*", "/", "%"}:
-            if lt != I32 or rt != I32:
-                self.diag.error(expr.span, "算术运算要求 i32")
+            if lt == rt and lt in {I32, F64}:
+                if expr.op == "%" and lt != I32:
+                    self.diag.error(expr.span, "% 运算只支持 i32")
+                    expr.inferred_type = str(I32)
+                    return I32
+                expr.inferred_type = str(lt)
+                return lt
+            self.diag.error(expr.span, "算术运算要求两侧同为 i32 或同为 f64")
             expr.inferred_type = str(I32)
             return I32
         if expr.op in {"==", "!=", "<", "<=", ">", ">="}:
@@ -332,6 +372,8 @@ class Checker:
             return sym.ty
         if isinstance(target, ast.FieldAccess):
             return self._check_expr(target, owner_fn)
+        if isinstance(target, ast.IndexExpr):
+            return self._check_expr(target, owner_fn)
         self.diag.error(target.span, "赋值左侧必须是变量或字段访问")
         return I32
 
@@ -364,6 +406,8 @@ class Checker:
             return type_var(tref.name)
         if tref.name == "Chan" and tref.params:
             return channel(self._resolve_type(tref.params[0], generics))
+        if tref.name == "Array" and tref.params:
+            return array(self._resolve_type(tref.params[0], generics))
         if tref.params:
             return Type(tref.name, tuple(self._resolve_type(p, generics) for p in tref.params))
         return BUILTINS.get(tref.name, Type(tref.name))

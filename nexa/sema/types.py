@@ -15,6 +15,7 @@ class Type:
 
 
 I32 = Type("i32")
+F64 = Type("f64")
 BOOL = Type("bool")
 STR = Type("str")
 VOID = Type("void")
@@ -22,6 +23,7 @@ VOID = Type("void")
 
 BUILTINS = {
     "i32": I32,
+    "f64": F64,
     "bool": BOOL,
     "str": STR,
     "void": VOID,
@@ -30,6 +32,10 @@ BUILTINS = {
 
 def channel(inner: Type) -> Type:
     return Type("Chan", (inner,))
+
+
+def array(inner: Type) -> Type:
+    return Type("Array", (inner,))
 
 
 def type_var(name: str) -> Type:

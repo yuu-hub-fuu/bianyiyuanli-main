@@ -112,6 +112,10 @@ def _expr_label(node: object) -> str:
         return node.name
     if isinstance(node, ast.StructLit):
         return node.name
+    if isinstance(node, ast.IndexExpr):
+        return f"{_expr_label(node.base)}[]"
+    if isinstance(node, ast.ArrayLit):
+        return "ArrayLit"
     return type(node).__name__
 
 
