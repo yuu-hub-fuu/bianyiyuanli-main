@@ -12,9 +12,18 @@ class Lowerer:
     def lower_module(self, module: ast.Module) -> HIRModule:
         out = HIRModule()
         for item in module.items:
+            if isinstance(item, ast.StructDef):
+                out.struct_layouts[item.name] = [f.name for f in item.fields]
+        for item in module.items:
             if isinstance(item, ast.Function) and not item.is_generic_template:
                 out.functions.append(self._lower_fn(item))
         return out
+
+    @staticmethod
+    def _strip_generics(ty: str | None) -> str:
+        if not ty:
+            return ""
+        return ty.split("[", 1)[0]
 
     def _tmp(self) -> str:
         self.temp_id += 1
@@ -43,7 +52,9 @@ class Lowerer:
                 hf.instrs.append(HIRInstr(HIRKind.MOVE, dst=st.target.name, args=[src], ty=ty))
             elif isinstance(st.target, ast.FieldAccess) and st.target.base:
                 base = self._lower_expr(st.target.base, hf)
-                hf.instrs.append(HIRInstr(HIRKind.FIELD_SET, args=[base, src], op=st.target.field, ty=ty, span=(st.span.line, st.span.col)))
+                struct_ty = self._strip_generics(st.target.base.inferred_type)
+                op = f"{struct_ty}.{st.target.field}" if struct_ty else st.target.field
+                hf.instrs.append(HIRInstr(HIRKind.FIELD_SET, args=[base, src], op=op, ty=ty, span=(st.span.line, st.span.col)))
             elif isinstance(st.target, ast.IndexExpr) and st.target.base and st.target.index:
                 base = self._lower_expr(st.target.base, hf)
                 index = self._lower_expr(st.target.index, hf)
@@ -175,7 +186,9 @@ class Lowerer:
         if isinstance(ex, ast.FieldAccess) and ex.base:
             base = self._lower_expr(ex.base, hf)
             t = self._tmp()
-            hf.instrs.append(HIRInstr(HIRKind.FIELD_GET, dst=t, args=[base], op=ex.field, ty=ex.inferred_type or "i32", span=(ex.span.line, ex.span.col)))
+            struct_ty = self._strip_generics(ex.base.inferred_type)
+            op = f"{struct_ty}.{ex.field}" if struct_ty else ex.field
+            hf.instrs.append(HIRInstr(HIRKind.FIELD_GET, dst=t, args=[base], op=op, ty=ex.inferred_type or "i32", span=(ex.span.line, ex.span.col)))
             return t
         if isinstance(ex, ast.ArrayLit):
             args = [self._lower_expr(item, hf) for item in ex.items]
@@ -212,6 +225,8 @@ class Lowerer:
 
 def hir_to_mir(hir: HIRModule) -> MIRModule:
     out = MIRModule()
+    out.struct_layouts = dict(hir.struct_layouts)
+    out.string_pool = list(hir.string_pool)
     for fn in hir.functions:
         mf = MIRFunction(fn.name)
         current = BasicBlock("entry")
@@ -221,12 +236,16 @@ def hir_to_mir(hir: HIRModule) -> MIRModule:
         def ensure_block(name: str) -> BasicBlock:
             if name not in mf.blocks:
                 mf.blocks[name] = BasicBlock(name)
-                mf.order.append(name)
             return mf.blocks[name]
+
+        def appear_in_order(name: str) -> None:
+            if name not in mf.order:
+                mf.order.append(name)
 
         for h in fn.instrs:
             if h.kind == HIRKind.LABEL and h.target:
                 current = ensure_block(h.target)
+                appear_in_order(h.target)
                 continue
 
             args = list(h.args)
@@ -236,15 +255,21 @@ def hir_to_mir(hir: HIRModule) -> MIRModule:
             if h.kind in {HIRKind.BRANCH_TRUE, HIRKind.BRANCH_READY} and h.target:
                 tblock = ensure_block(h.target)
                 current.succs.add(h.target); tblock.preds.add(current.label)
-                fall = ensure_block(f"fall_{len(mf.order)}")
+                fall_name = f"fall_{len(mf.order)}"
+                fall = ensure_block(fall_name)
+                appear_in_order(fall_name)
                 current.succs.add(fall.label); fall.preds.add(current.label)
                 current = fall
             elif h.kind == HIRKind.JUMP and h.target:
                 tblock = ensure_block(h.target)
                 current.succs.add(h.target); tblock.preds.add(current.label)
-                current = ensure_block(f"after_jmp_{len(mf.order)}")
+                next_name = f"after_jmp_{len(mf.order)}"
+                current = ensure_block(next_name)
+                appear_in_order(next_name)
             elif h.kind == HIRKind.RET:
-                current = ensure_block(f"after_ret_{len(mf.order)}")
+                next_name = f"after_ret_{len(mf.order)}"
+                current = ensure_block(next_name)
+                appear_in_order(next_name)
 
         # prune empty synthetic blocks without predecessors
         for name in list(mf.blocks.keys()):

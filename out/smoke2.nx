@@ -1,0 +1,23 @@
+struct Pair { x: i32, y: i32 }
+
+fn add(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+
+fn max[T: Ord](a: T, b: T) -> T {
+    if a > b { return a; }
+    return b;
+}
+
+fn main() -> i32 {
+    let p: Pair = Pair { x: 10, y: 20 };
+    p.x = p.x + 5;
+    let xs: Array[i32] = [1, 2, 3, 4];
+    xs[2] = xs[0] + xs[3];
+    print(p.x);
+    print(p.y);
+    print(xs[2]);
+    print(add(p.x, p.y));
+    print(max(7, 3));
+    return p.x + p.y;
+}

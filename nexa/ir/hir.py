@@ -57,3 +57,5 @@ class HIRFunction:
 @dataclass(slots=True)
 class HIRModule:
     functions: list[HIRFunction] = field(default_factory=list)
+    struct_layouts: dict[str, list[str]] = field(default_factory=dict)
+    string_pool: list[str] = field(default_factory=list)

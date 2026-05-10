@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(where gcc *)",
+      "Bash(where clang *)",
+      "Bash(where nasm *)",
+      "Bash(where link *)",
+      "Bash(where ml64 *)",
+      "Bash(gcc --version)",
+      "Bash(where as *)",
+      "Bash(where ld *)",
+      "Bash(python nexa_cli.py out/smoke.nx --build --run-exe)",
+      "Bash(python nexa_cli.py out/smoke2.nx --build --run-exe)",
+      "Bash(python nexa_cli.py example.nx --build --run-exe)",
+      "Bash(python nexa_cli.py out/smoke3.nx --build --run-exe)",
+      "Bash(python -m pytest tests/ -x --tb=short)",
+      "Bash(python -m pytest tests/ --tb=short --basetemp=\"d:/下载/bianyiyuanli-main/pytest-cache-files-run\")",
+      "Bash(python -m pytest tests/test_native_backend.py -v --basetemp=\"d:/下载/bianyiyuanli-main/pytest-cache-files-run\")"
+    ]
+  }
+}

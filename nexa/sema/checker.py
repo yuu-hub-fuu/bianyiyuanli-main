@@ -331,6 +331,19 @@ class Checker:
         if sig.generic_params:
             return self._check_generic_call(expr, sig, owner_fn)
 
+        # `print` is intentionally polymorphic over the primitive scalar
+        # types: int, float, and bool. The native backend dispatches to
+        # either nx_print_i32 or nx_print_f64 based on the runtime arg
+        # type, and the VM just str()s the value. Skip the strict type
+        # check to keep the source language ergonomic for both modes.
+        if callee == "print":
+            if len(expr.args) != 1:
+                self.diag.error(expr.span, "参数数量不匹配: 期望 1")
+            for arg in expr.args:
+                self._check_expr(arg, owner_fn)
+            expr.inferred_type = str(sig.ret)
+            return sig.ret
+
         if len(sig.params) != len(expr.args):
             self.diag.error(expr.span, f"参数数量不匹配: 期望 {len(sig.params)}")
         for i, arg in enumerate(expr.args):

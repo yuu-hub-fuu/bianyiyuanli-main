@@ -1,0 +1,21 @@
+fn fact(n: i32) -> i32 {
+    let r: i32 = 1;
+    let i: i32 = 2;
+    while i <= n {
+        r = r * i;
+        i = i + 1;
+    }
+    return r;
+}
+
+fn main() -> i32 {
+    let n: i32 = 6;
+    let f: i32 = fact(n);
+    print(f);
+    if f > 100 {
+        print(1);
+    } else {
+        print(0);
+    }
+    return f % 100;
+}

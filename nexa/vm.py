@@ -105,14 +105,16 @@ class HIRVM:
                 obj = val(ins.args[0])
                 if not isinstance(obj, dict):
                     raise RuntimeError(f"VM: field access on non-struct value {obj!r}")
-                if ins.op not in obj:
-                    raise RuntimeError(f"VM: missing field {ins.op}")
-                env[ins.dst] = obj[ins.op]
+                fname = ins.op.rsplit(".", 1)[-1]
+                if fname not in obj:
+                    raise RuntimeError(f"VM: missing field {fname}")
+                env[ins.dst] = obj[fname]
             elif op == HIRKind.FIELD_SET and len(ins.args) == 2 and ins.op:
                 obj = val(ins.args[0])
                 if not isinstance(obj, dict):
                     raise RuntimeError(f"VM: field assignment on non-struct value {obj!r}")
-                obj[ins.op] = val(ins.args[1])
+                fname = ins.op.rsplit(".", 1)[-1]
+                obj[fname] = val(ins.args[1])
             elif op == HIRKind.ARRAY_NEW and ins.dst:
                 env[ins.dst] = [val(a) for a in ins.args]
             elif op == HIRKind.ARRAY_GET and ins.dst and len(ins.args) == 2:

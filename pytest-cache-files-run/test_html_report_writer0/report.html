@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"/><title>Nexa Course Report</title>
+<style>
+body{font-family:Arial,sans-serif;padding:20px;line-height:1.4}
+table{border-collapse:collapse;width:100%;margin:10px 0 18px}
+th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;vertical-align:top}
+th{background:#f2f2f2} h1,h2{margin:10px 0 6px} code{background:#f5f5f5;padding:1px 4px}
+img{max-width:100%;border:1px solid #ddd;margin:8px 0 14px}
+</style></head><body>
+<h1>Nexa 编译课程报告</h1>
+<h2>Pipeline Timeline</h2><table><thead><tr><th>Stage</th><th>Status</th><th>Detail</th></tr></thead><tbody><tr><td>Lexer</td><td>ok</td><td>tokens=12</td></tr><tr><td>Parser</td><td>ok</td><td>items=1</td></tr><tr><td>MacroExpand</td><td>ok</td><td>core-mode disabled</td></tr><tr><td>Sema</td><td>ok</td><td>symbols=1</td></tr><tr><td>Monomorphize</td><td>ok</td><td>core-mode disabled</td></tr><tr><td>Sema(redo)</td><td>ok</td><td>symbols=1</td></tr><tr><td>HIR</td><td>ok</td><td>instrs=2</td></tr><tr><td>Optimize</td><td>ok</td><td>const-fold + dce</td></tr><tr><td>MIR</td><td>ok</td><td>functions=1</td></tr><tr><td>RegAlloc</td><td>ok</td><td>linear-scan</td></tr><tr><td>Backend</td><td>ok</td><td>asm-fns=1</td></tr></tbody></table>
+<h2>Keyword Table</h2><table><thead><tr><th>keyword</th></tr></thead><tbody><tr><td>fn</td></tr><tr><td>return</td></tr></tbody></table>
+<h2>Delimiter Table</h2><table><thead><tr><th>delimiter</th></tr></thead><tbody><tr><td>(</td></tr><tr><td>)</td></tr><tr><td>-&gt;</td></tr><tr><td>;</td></tr><tr><td>{</td></tr><tr><td>}</td></tr></tbody></table>
+<h2>Identifier Table</h2><table><thead><tr><th>identifier</th></tr></thead><tbody><tr><td>i32</td></tr><tr><td>main</td></tr></tbody></table>
+<h2>Constant Table</h2><table><thead><tr><th>constant</th></tr></thead><tbody><tr><td>0</td></tr></tbody></table>
+<h2>Symbol Table</h2><table><thead><tr><th>name</th><th>category</th><th>type</th><th>scope</th><th>slot</th></tr></thead><tbody><tr><td>main</td><td>fn</td><td>fn</td><td>scope=0</td><td>slot=None</td></tr></tbody></table>
+<h2>Quadruple Table</h2><table><thead><tr><th>quadruple</th></tr></thead><tbody><tr><td>001: (CONST, op=None, args=[0], dst=t1, target=None, ty=i32) @1:27</td></tr><tr><td>002: (RET, op=None, args=[t1], dst=None, target=None, ty=i32) @0:0</td></tr></tbody></table>
+<h2>CFG Section</h2><table><thead><tr><th>function</th><th>line</th></tr></thead><tbody><tr><td>main</td><td>[entry] preds=[] succs=[]</td></tr><tr><td>main</td><td>  CONST op=None args=[&#x27;0&#x27;] target=None -&gt; t1</td></tr><tr><td>main</td><td>  RET op=None args=[&#x27;t1&#x27;] target=None -&gt; None</td></tr></tbody></table>
+<h2>VM Run Result</h2><table><thead><tr><th>field</th><th>value</th></tr></thead><tbody><tr><td>exit</td><td>None</td></tr><tr><td>stdout</td><td></td></tr><tr><td>trace_steps</td><td>0</td></tr></tbody></table>
+<h2>Diagnostics</h2><table><thead><tr><th>level</th><th>message</th><th>location</th></tr></thead><tbody><tr><td colspan='3'><i>(empty)</i></td></tr></tbody></table>
+<h2>Embedded SVG</h2><p><i>No AST/CFG SVG found next to report.</i></p>
+</body></html>

@@ -22,13 +22,28 @@ def main() -> int:
     ap.add_argument("--mode", choices=["core", "full"], default="full")
     ap.add_argument("--export-dir", default=None)
     ap.add_argument("--emit-llvm", action="store_true")
-    ap.add_argument("--run", action="store_true")
+    ap.add_argument("--run", action="store_true", help="run via the HIR VM (interpreter)")
     ap.add_argument("--trace", action="store_true", help="print VM execution trace (requires --run)")
     ap.add_argument("--report", type=Path, default=None, help="write HTML compile report")
+    ap.add_argument("--build", action="store_true",
+                    help="emit real Win64 .s, assemble to .o, link to out/<source>.exe via gcc")
+    ap.add_argument("--build-dir", default="out", help="directory for native build artifacts (default: out/)")
+    ap.add_argument("--run-exe", action="store_true",
+                    help="execute the produced .exe after --build (the OS loader actually runs it on the CPU)")
     args = ap.parse_args()
 
     src = args.source.read_text(encoding="utf-8")
-    res = compile_source(src, mode=args.mode, export_dir=args.export_dir, run=args.run, trace=args.trace and args.run)
+    res = compile_source(
+        src,
+        mode=args.mode,
+        export_dir=args.export_dir,
+        run=args.run,
+        trace=args.trace and args.run,
+        build=args.build or args.run_exe,
+        build_dir=args.build_dir,
+        source_stem=args.source.stem,
+        run_exe=args.run_exe,
+    )
 
     print("== TIMELINE ==")
     for st in res.timeline:
@@ -90,6 +105,20 @@ def main() -> int:
         for fn, text in res.artifacts.asm.items():
             print(f"-- {fn} --")
             print(text)
+
+    if res.build is not None:
+        print("== NATIVE BUILD ==")
+        print(f"asm  : {res.build.asm_path}")
+        print(f"obj  : {res.build.object_path}")
+        print(f"rt.o : {res.build.runtime_object_path}")
+        print(f"exe  : {res.build.exe_path}")
+        if res.exe_exit_code is not None:
+            print("== EXE RUN ==")
+            if res.exe_stdout:
+                print(res.exe_stdout, end="" if res.exe_stdout.endswith("\n") else "\n")
+            if res.exe_stderr:
+                print(res.exe_stderr, end="" if res.exe_stderr.endswith("\n") else "\n")
+            print(f"exit={res.exe_exit_code}")
 
     if args.report is not None:
         write_html_report(args.report, res)

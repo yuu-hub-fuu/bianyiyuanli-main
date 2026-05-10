@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from nexa.backend.asm_x64 import emit_function
+from nexa.backend.asm_x64 import _compute_signatures, emit_function, emit_module
+from nexa.backend.build import BuildError, BuildOutput, build_module, run_executable
 from nexa.backend.llvm_backend import emit_llvm_ir, validate_llvm_subset
 from nexa.backend.regalloc import compute_intervals, linear_scan
 from nexa.frontend import ast
@@ -42,6 +43,7 @@ class BuildArtifacts:
     hir_opt: HIRModule | None = None
     cfg: dict[str, list[str]] = field(default_factory=dict)
     asm: dict[str, str] = field(default_factory=dict)
+    asm_module: str = ""
     llvm_ir: str = ""
     hir_raw_structured: list[dict] = field(default_factory=list)
     hir_opt_structured: list[dict] = field(default_factory=list)
@@ -58,6 +60,10 @@ class BuildResult:
     run_value: int | None = None
     run_stdout: list[str] = field(default_factory=list)
     vm_trace: list[VMFrame] = field(default_factory=list)
+    build: BuildOutput | None = None
+    exe_exit_code: int | None = None
+    exe_stdout: str = ""
+    exe_stderr: str = ""
 
 
 def _ast_dump(node: object, indent: int = 0) -> list[str]:
@@ -255,6 +261,10 @@ def compile_source(
     run: bool = False,
     trace: bool = False,
     on_stage: Callable[[StageResult], object] | None = None,
+    build: bool = False,
+    build_dir: str | None = None,
+    source_stem: str = "program",
+    run_exe: bool = False,
 ) -> BuildResult:
     diag = DiagnosticBag()
     timeline: list[StageResult] = []
@@ -363,11 +373,13 @@ def compile_source(
 
     asm: dict[str, str] = {}
     cfg_dump: dict[str, list[str]] = {}
+    sigs = _compute_signatures(mir_mod)
     for fn in mir_mod.functions:
         intervals = compute_intervals(fn)
-        alloc = linear_scan(intervals, ["r10", "r11", "r12", "r13", "r14", "r15"])
-        asm[fn.name] = emit_function(fn, alloc)
+        alloc = linear_scan(intervals, ["rbx", "r12", "r13", "r14", "r15"])
+        asm[fn.name] = emit_function(fn, alloc, mir_mod.struct_layouts, sigs)
         cfg_dump[fn.name] = _cfg_dump(fn)
+    asm_module_text = emit_module(mir_mod)
     stage("RegAlloc", "ok", "linear-scan")
     stage("Backend", "warning" if not ok_llvm else "ok", f"asm-fns={len(asm)}")
 
@@ -381,6 +393,7 @@ def compile_source(
     artifacts.cfg = cfg_dump
     artifacts.cfg_structured = _cfg_structured(mir_mod)
     artifacts.asm = asm
+    artifacts.asm_module = asm_module_text
     artifacts.llvm_ir = llvm_ir
 
     run_value = None
@@ -402,6 +415,21 @@ def compile_source(
     if export_dir:
         _export_graphs(module, mir_mod, export_dir)
 
+    build_output: BuildOutput | None = None
+    exe_exit: int | None = None
+    exe_out = ""
+    exe_err = ""
+    if build and not diag.has_errors():
+        try:
+            build_output = build_module(mir_mod, source_stem, out_dir=build_dir or "out")
+            stage("NativeBuild", "ok", f"exe={build_output.exe_path}")
+            if run_exe:
+                exe_exit, exe_out, exe_err = run_executable(build_output.exe_path)
+                stage("NativeRun", "ok" if exe_exit == 0 else "warning", f"exit={exe_exit}")
+        except BuildError as exc:
+            stage("NativeBuild", "failed", str(exc))
+            diag.add(Level.ERROR, Span(0, 0, 1, 1), f"native build error: {exc}")
+
     return BuildResult(
         diagnostics=diag.items,
         artifacts=artifacts,
@@ -409,6 +437,10 @@ def compile_source(
         run_value=run_value,
         run_stdout=run_stdout,
         vm_trace=vm_trace,
+        build=build_output,
+        exe_exit_code=exe_exit,
+        exe_stdout=exe_out,
+        exe_stderr=exe_err,
     )
 
 
