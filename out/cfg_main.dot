@@ -1,3 +1,20 @@
 digraph CFG {
 entry [shape=box,label="entry"];
+entry -> fall_2;
+entry -> t6;
+t6 [shape=box,label="t6"];
+t6 -> t8;
+fall_2 [shape=box,label="fall_2"];
+fall_2 -> t7;
+t7 [shape=box,label="t7"];
+t8 [shape=box,label="t8"];
+t8 -> t16;
+t8 -> fall_8;
+t16 [shape=box,label="t16"];
+t16 -> t18;
+fall_8 [shape=box,label="fall_8"];
+fall_8 -> t17;
+t17 [shape=box,label="t17"];
+t17 -> t18;
+t18 [shape=box,label="t18"];
 }

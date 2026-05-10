@@ -86,29 +86,62 @@ class HIRVM:
                 except Exception:
                     return x
 
+            def num(x: object) -> int | float:
+                return x if isinstance(x, float) else int(x)
+
             if op == HIRKind.PARAM:
                 ip += 1; continue
             if op == HIRKind.CONST and ins.dst and ins.args:
-                env[ins.dst] = val(ins.args[0])
+                env[ins.dst] = float(ins.args[0]) if ins.ty == "f64" else val(ins.args[0])
             elif op == HIRKind.MOVE and ins.dst and ins.args:
                 env[ins.dst] = val(ins.args[0])
+            elif op == HIRKind.STRUCT_NEW and ins.dst:
+                obj: dict[str, object] = {"__struct__": ins.op or ins.ty}
+                for i in range(0, len(ins.args), 2):
+                    if i + 1 < len(ins.args):
+                        obj[ins.args[i]] = val(ins.args[i + 1])
+                env[ins.dst] = obj
+            elif op == HIRKind.FIELD_GET and ins.dst and ins.args and ins.op:
+                obj = val(ins.args[0])
+                if not isinstance(obj, dict):
+                    raise RuntimeError(f"VM: field access on non-struct value {obj!r}")
+                if ins.op not in obj:
+                    raise RuntimeError(f"VM: missing field {ins.op}")
+                env[ins.dst] = obj[ins.op]
+            elif op == HIRKind.FIELD_SET and len(ins.args) == 2 and ins.op:
+                obj = val(ins.args[0])
+                if not isinstance(obj, dict):
+                    raise RuntimeError(f"VM: field assignment on non-struct value {obj!r}")
+                obj[ins.op] = val(ins.args[1])
+            elif op == HIRKind.ARRAY_NEW and ins.dst:
+                env[ins.dst] = [val(a) for a in ins.args]
+            elif op == HIRKind.ARRAY_GET and ins.dst and len(ins.args) == 2:
+                arr = val(ins.args[0])
+                if not isinstance(arr, list):
+                    raise RuntimeError(f"VM: index access on non-array value {arr!r}")
+                env[ins.dst] = arr[int(val(ins.args[1]))]
+            elif op == HIRKind.ARRAY_SET and len(ins.args) == 3:
+                arr = val(ins.args[0])
+                if not isinstance(arr, list):
+                    raise RuntimeError(f"VM: index assignment on non-array value {arr!r}")
+                arr[int(val(ins.args[1]))] = val(ins.args[2])
             elif op == HIRKind.UNARY and ins.dst and ins.args:
-                r = int(val(ins.args[0]))
+                r = num(val(ins.args[0]))
                 env[ins.dst] = -r if ins.op == "-" else (0 if r else 1)
             elif op == HIRKind.BIN and ins.dst and len(ins.args) == 2:
                 a, b = val(ins.args[0]), val(ins.args[1])
                 sym = ins.op or "+"
-                if sym == "+": env[ins.dst] = int(a) + int(b)
-                elif sym == "-": env[ins.dst] = int(a) - int(b)
-                elif sym == "*": env[ins.dst] = int(a) * int(b)
-                elif sym == "/": env[ins.dst] = int(a) // int(b)
+                if sym == "+": env[ins.dst] = num(a) + num(b)
+                elif sym == "-": env[ins.dst] = num(a) - num(b)
+                elif sym == "*": env[ins.dst] = num(a) * num(b)
+                elif sym == "/": env[ins.dst] = (num(a) / num(b)) if isinstance(num(a), float) or isinstance(num(b), float) else int(a) // int(b)
                 elif sym == "%": env[ins.dst] = int(a) % int(b)
                 elif sym == "==": env[ins.dst] = int(a == b)
                 elif sym == "!=": env[ins.dst] = int(a != b)
-                elif sym == "<": env[ins.dst] = int(int(a) < int(b))
-                elif sym == "<=": env[ins.dst] = int(int(a) <= int(b))
-                elif sym == ">": env[ins.dst] = int(int(a) > int(b))
-                elif sym == ">=": env[ins.dst] = int(int(a) >= int(b))
+                elif sym == "<": env[ins.dst] = int(num(a) < num(b))
+                elif sym == "<=": env[ins.dst] = int(num(a) <= num(b))
+                elif sym == ">": env[ins.dst] = int(num(a) > num(b))
+                elif sym == ">=": env[ins.dst] = int(num(a) >= num(b))
                 elif sym == "&&": env[ins.dst] = int(bool(a) and bool(b))
                 elif sym == "||": env[ins.dst] = int(bool(a) or bool(b))
             elif op == HIRKind.ARG and ins.args:

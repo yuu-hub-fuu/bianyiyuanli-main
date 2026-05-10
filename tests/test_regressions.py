@@ -118,6 +118,60 @@ def test_typed_hir_kind_driven():
     assert 'MOVE' in kinds
 
 
+def test_struct_literal_field_access_and_assignment_run_in_vm():
+    src = '''
+struct Pair { x: i32, y: i32 }
+fn main() -> i32 {
+  let p: Pair = Pair { x: 1, y: 2 };
+  p.x = p.x + 4;
+  return p.x + p.y;
+}
+'''
+    res = compile_source(src, mode='core', run=True)
+    assert all(d.level != 'error' for d in res.diagnostics)
+    assert res.run_value == 7
+    assert res.artifacts.hir_opt is not None
+    kinds = {i.kind.name for i in res.artifacts.hir_opt.functions[0].instrs}
+    assert {'STRUCT_NEW', 'FIELD_GET', 'FIELD_SET'} <= kinds
+
+
+def test_struct_literal_reports_missing_and_unknown_fields():
+    src = 'struct Pair { x: i32, y: i32 } fn main() -> i32 { let p: Pair = Pair { x: 1, z: 2 }; return 0; }'
+    res = compile_source(src, mode='core')
+    messages = '\n'.join(d.message for d in res.diagnostics)
+    assert '没有字段 z' in messages
+    assert '缺少字段 y' in messages
+
+
+def test_float_arithmetic_runs_in_vm():
+    src = 'fn main() -> i32 { let x: f64 = 1.5 + 2.25; if x > 3.0 { return 1; } return 0; }'
+    res = compile_source(src, mode='core', run=True)
+    assert all(d.level != 'error' for d in res.diagnostics)
+    assert res.run_value == 1
+
+
+def test_array_literal_index_and_assignment_run_in_vm():
+    src = '''
+fn main() -> i32 {
+  let xs: Array[i32] = [1, 2, 3];
+  xs[1] = xs[0] + xs[2];
+  return xs[1];
+}
+'''
+    res = compile_source(src, mode='core', run=True)
+    assert all(d.level != 'error' for d in res.diagnostics)
+    assert res.run_value == 4
+    assert res.artifacts.hir_opt is not None
+    kinds = {i.kind.name for i in res.artifacts.hir_opt.functions[0].instrs}
+    assert {'ARRAY_NEW', 'ARRAY_GET', 'ARRAY_SET'} <= kinds
+
+
+def test_array_literal_rejects_mixed_element_types():
+    src = 'fn main() -> i32 { let xs: Array[i32] = [1, true]; return 0; }'
+    res = compile_source(src, mode='core')
+    assert any('数组元素类型必须一致' in d.message for d in res.diagnostics)
+
+
 def test_llvm_emits_if_control_flow():
     src = 'fn main() -> i32 { let a: i32 = 1; if a > 0 { a = 2; } return a; }'
     res = compile_source(src, mode='core')

@@ -86,7 +86,8 @@ def _ast_dump(node: object, indent: int = 0) -> list[str]:
     if isinstance(node, ast.LetStmt):
         return [f"{pad}Let {node.name}"]
     if isinstance(node, ast.AssignStmt):
-        return [f"{pad}Assign {node.target.name}"]
+        target = node.target.name if isinstance(node.target, ast.NameExpr) else _expr_label(node.target)
+        return [f"{pad}Assign {target}"]
     if isinstance(node, ast.ReturnStmt):
         return [f"{pad}Return"]
     if isinstance(node, ast.IfStmt):
@@ -102,6 +103,20 @@ def _ast_dump(node: object, indent: int = 0) -> list[str]:
     if isinstance(node, ast.ExprStmt):
         return [f"{pad}ExprStmt"]
     return [f"{pad}{type(node).__name__}"]
+
+
+def _expr_label(node: object) -> str:
+    if isinstance(node, ast.FieldAccess):
+        return f"{_expr_label(node.base)}.{node.field}"
+    if isinstance(node, ast.NameExpr):
+        return node.name
+    if isinstance(node, ast.StructLit):
+        return node.name
+    if isinstance(node, ast.IndexExpr):
+        return f"{_expr_label(node.base)}[]"
+    if isinstance(node, ast.ArrayLit):
+        return "ArrayLit"
+    return type(node).__name__
 
 
 def _hir_lines(hir_mod) -> list[str]:

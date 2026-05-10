@@ -7,6 +7,7 @@ from enum import Enum, auto
 class TokenKind(Enum):
     IDENT = auto()
     INT = auto()
+    FLOAT = auto()
     STRING = auto()
     TRUE = auto()
     FALSE = auto()

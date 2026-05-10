@@ -28,6 +28,11 @@ class IntLit(Expr):
 
 
 @dataclass(slots=True)
+class FloatLit(Expr):
+    value: float = 0.0
+
+
+@dataclass(slots=True)
 class BoolLit(Expr):
     value: bool = False
 
@@ -40,6 +45,35 @@ class StrLit(Expr):
 @dataclass(slots=True)
 class NameExpr(Expr):
     name: str = ""
+
+
+@dataclass(slots=True)
+class FieldInit(Node):
+    name: str
+    value: Expr
+
+
+@dataclass(slots=True)
+class StructLit(Expr):
+    name: str = ""
+    fields: list[FieldInit] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class FieldAccess(Expr):
+    base: Expr | None = None
+    field: str = ""
+
+
+@dataclass(slots=True)
+class ArrayLit(Expr):
+    items: list[Expr] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class IndexExpr(Expr):
+    base: Expr | None = None
+    index: Expr | None = None
 
 
 @dataclass(slots=True)
@@ -93,7 +127,7 @@ class LetStmt(Stmt):
 
 @dataclass(slots=True)
 class AssignStmt(Stmt):
-    target: NameExpr
+    target: Expr
     value: Expr
 
 

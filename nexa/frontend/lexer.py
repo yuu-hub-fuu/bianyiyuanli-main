@@ -64,7 +64,8 @@ class Lexer:
             if ch.isdigit():
                 lex = self._scan_number()
                 self.tables.constant_table.add(lex)
-                out.append(Token(TokenKind.INT, lex, self._span(start, self.i, line, col)))
+                kind = TokenKind.FLOAT if "." in lex else TokenKind.INT
+                out.append(Token(kind, lex, self._span(start, self.i, line, col)))
                 continue
             if ch == '"':
                 tok = self._scan_string(start, line, col)
@@ -90,6 +91,10 @@ class Lexer:
         s = self.i
         while self._peek().isdigit():
             self._advance()
+        if self._peek() == "." and self._peek(1).isdigit():
+            self._advance()
+            while self._peek().isdigit():
+                self._advance()
         return self.source[s:self.i]
 
     def _scan_string(self, start: int, line: int, col: int) -> Token:

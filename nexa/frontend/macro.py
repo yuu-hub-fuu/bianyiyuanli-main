@@ -87,6 +87,20 @@ class MacroExpander:
                     rename_expr(expr.callee)
                 for a in expr.args:
                     rename_expr(a)
+            elif isinstance(expr, ast.StructLit):
+                for f in expr.fields:
+                    rename_expr(f.value)
+            elif isinstance(expr, ast.FieldAccess):
+                if expr.base:
+                    rename_expr(expr.base)
+            elif isinstance(expr, ast.ArrayLit):
+                for item in expr.items:
+                    rename_expr(item)
+            elif isinstance(expr, ast.IndexExpr):
+                if expr.base:
+                    rename_expr(expr.base)
+                if expr.index:
+                    rename_expr(expr.index)
             elif isinstance(expr, ast.SelectExpr):
                 for c in expr.cases:
                     if c.channel:
@@ -113,7 +127,10 @@ class MacroExpander:
             return
 
         if isinstance(stmt, ast.AssignStmt):
-            stmt.target.name = resolve(stmt.target.name)
+            if isinstance(stmt.target, ast.NameExpr):
+                stmt.target.name = resolve(stmt.target.name)
+            else:
+                rename_expr(stmt.target)
             rename_expr(stmt.value)
         elif isinstance(stmt, ast.ExprStmt):
             rename_expr(stmt.expr)
@@ -137,6 +154,14 @@ class MacroExpander:
             return ast.BinaryExpr(expr.span, expr.inferred_type, expr.op, self._clone_expr(expr.lhs, bind), self._clone_expr(expr.rhs, bind))
         if isinstance(expr, ast.CallExpr) and expr.callee:
             return ast.CallExpr(expr.span, expr.inferred_type, self._clone_expr(expr.callee, bind), [self._clone_expr(a, bind) for a in expr.args])
+        if isinstance(expr, ast.StructLit):
+            return ast.StructLit(expr.span, expr.inferred_type, expr.name, [ast.FieldInit(f.span, f.name, self._clone_expr(f.value, bind)) for f in expr.fields])
+        if isinstance(expr, ast.FieldAccess):
+            return ast.FieldAccess(expr.span, expr.inferred_type, self._clone_expr(expr.base, bind) if expr.base else None, expr.field)
+        if isinstance(expr, ast.ArrayLit):
+            return ast.ArrayLit(expr.span, expr.inferred_type, [self._clone_expr(item, bind) for item in expr.items])
+        if isinstance(expr, ast.IndexExpr):
+            return ast.IndexExpr(expr.span, expr.inferred_type, self._clone_expr(expr.base, bind) if expr.base else None, self._clone_expr(expr.index, bind) if expr.index else None)
         if isinstance(expr, ast.SelectExpr):
             cases = [ast.SelectCase(c.span, c.kind, self._clone_expr(c.channel, bind) if c.channel else None,
                                     self._clone_expr(c.value, bind) if c.value else None,
@@ -150,7 +175,7 @@ class MacroExpander:
         if isinstance(stmt, ast.LetStmt):
             return ast.LetStmt(stmt.span, stmt.name, stmt.type_ref, self._clone_expr(stmt.value, bind) if stmt.value else None)
         if isinstance(stmt, ast.AssignStmt):
-            return ast.AssignStmt(stmt.span, stmt.target, self._clone_expr(stmt.value, bind))
+            return ast.AssignStmt(stmt.span, self._clone_expr(stmt.target, bind), self._clone_expr(stmt.value, bind))
         if isinstance(stmt, ast.ExprStmt):
             ex = self._clone_expr(stmt.expr, bind)
             if isinstance(ex, ast.BlockExpr) and ex.block:

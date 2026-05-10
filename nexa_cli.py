@@ -32,8 +32,8 @@ def main() -> int:
 
     print("== TIMELINE ==")
     for st in res.timeline:
-        icon = {"ok": "✅", "warning": "⚠️", "failed": "❌", "skipped": "⏭️"}.get(st.status, "❔")
-        print(f"{icon} {st.name:<12} {st.detail}")
+        marker = {"ok": "[OK]", "warning": "[WARN]", "failed": "[FAIL]", "skipped": "[SKIP]"}.get(st.status, "[?]")
+        print(f"{marker:<6} {st.name:<12} {st.detail}")
 
     for d in res.diagnostics:
         print(f"[{d.level}] {d.message} @ line {d.span.line}:{d.span.col}")

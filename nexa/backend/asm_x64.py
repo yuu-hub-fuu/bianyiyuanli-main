@@ -93,4 +93,6 @@ def emit_function(fn: MIRFunction, alloc: dict[str, str | None]) -> str:
                 lines.append("  call rt_chan_ready")
                 lines.append("  cmp rax, 0")
                 lines.append(f"  jne {ins.target}")
+            elif ins.kind in {HIRKind.STRUCT_NEW, HIRKind.FIELD_GET, HIRKind.FIELD_SET, HIRKind.ARRAY_NEW, HIRKind.ARRAY_GET, HIRKind.ARRAY_SET}:
+                lines.append(f"  ; {ins.kind.name} {ins.op or ''} is VM-only in this teaching backend")
     return "\n".join(lines) + "\n"
