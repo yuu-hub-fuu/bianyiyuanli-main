@@ -172,6 +172,43 @@ def test_array_literal_rejects_mixed_element_types():
     assert any('数组元素类型必须一致' in d.message for d in res.diagnostics)
 
 
+def test_len_print_str_and_read_builtins_run_in_vm(monkeypatch):
+    values = iter(["7", "2.5"])
+    monkeypatch.setattr("builtins.input", lambda: next(values))
+    src = '''
+fn main() -> i32 {
+  let xs: Array[i32] = [1, 2, 3];
+  print("hello");
+  let a: i32 = read_i32();
+  let b: f64 = read_f64();
+  if b > 2.0 { return len(xs) + a; }
+  return 0;
+}
+'''
+    res = compile_source(src, mode='core', run=True)
+    assert all(d.level != 'error' for d in res.diagnostics)
+    assert res.run_value == 10
+    assert 'hello' in res.run_stdout
+
+
+def test_len_rejects_non_array_argument():
+    src = 'fn main() -> i32 { return len(1); }'
+    res = compile_source(src, mode='core')
+    assert any('len 参数必须是 Array' in d.message for d in res.diagnostics)
+
+
+def test_import_string_path_allows_cross_file_vm_call(tmp_path):
+    lib = tmp_path / "math.nx"
+    lib.write_text("fn add(a: i32, b: i32) -> i32 { return a + b; }", encoding="utf-8")
+    main = tmp_path / "main.nx"
+    src = 'import "math.nx"; fn main() -> i32 { return add(2, 5); }'
+    main.write_text(src, encoding="utf-8")
+    res = compile_source(src, mode='core', run=True, source_path=str(main))
+    assert all(d.level != 'error' for d in res.diagnostics)
+    assert res.run_value == 7
+    assert "math__add" in res.artifacts.asm_module
+
+
 def test_llvm_emits_if_control_flow():
     src = 'fn main() -> i32 { let a: i32 = 1; if a > 0 { a = 2; } return a; }'
     res = compile_source(src, mode='core')

@@ -84,6 +84,8 @@ def _ast_dump(node: object, indent: int = 0) -> list[str]:
         for f in node.fields:
             out.append(f"{pad}  Field {f.name}: {f.type_ref.name}")
         return out
+    if isinstance(node, ast.ImportDecl):
+        return [f'{pad}Import "{node.path}"']
     if isinstance(node, ast.Block):
         out = [f"{pad}Block"]
         for s in node.stmts:
@@ -254,6 +256,150 @@ def _suggestions(diag: DiagnosticBag) -> None:
             d.fixits.append("在此处插入 ';'")
         if "未声明" in d.message and not d.fixits:
             d.fixits.append("先使用 let 声明该变量")
+
+
+def _module_name_for_path(path: Path) -> str:
+    chars = [ch if ch.isalnum() or ch == "_" else "_" for ch in path.stem]
+    name = "".join(chars).strip("_")
+    return name or "module"
+
+
+def _collect_local_function_names(module: ast.Module) -> set[str]:
+    return {item.name for item in module.items if isinstance(item, ast.Function)}
+
+
+def _rewrite_call_names_in_expr(expr: ast.Expr | None, rename: dict[str, str]) -> None:
+    if expr is None:
+        return
+    if isinstance(expr, ast.CallExpr):
+        if isinstance(expr.callee, ast.NameExpr) and expr.callee.name in rename:
+            expr.callee.name = rename[expr.callee.name]
+        _rewrite_call_names_in_expr(expr.callee, rename)
+        for arg in expr.args:
+            _rewrite_call_names_in_expr(arg, rename)
+    elif isinstance(expr, ast.UnaryExpr):
+        _rewrite_call_names_in_expr(expr.rhs, rename)
+    elif isinstance(expr, ast.BinaryExpr):
+        _rewrite_call_names_in_expr(expr.lhs, rename)
+        _rewrite_call_names_in_expr(expr.rhs, rename)
+    elif isinstance(expr, ast.StructLit):
+        for field in expr.fields:
+            _rewrite_call_names_in_expr(field.value, rename)
+    elif isinstance(expr, ast.FieldAccess):
+        _rewrite_call_names_in_expr(expr.base, rename)
+    elif isinstance(expr, ast.ArrayLit):
+        for item in expr.items:
+            _rewrite_call_names_in_expr(item, rename)
+    elif isinstance(expr, ast.IndexExpr):
+        _rewrite_call_names_in_expr(expr.base, rename)
+        _rewrite_call_names_in_expr(expr.index, rename)
+    elif isinstance(expr, ast.BlockExpr) and expr.block:
+        _rewrite_call_names_in_block(expr.block, rename)
+    elif isinstance(expr, ast.SelectExpr):
+        for case in expr.cases:
+            _rewrite_call_names_in_expr(case.channel, rename)
+            _rewrite_call_names_in_expr(case.value, rename)
+            _rewrite_call_names_in_block(case.body, rename)
+
+
+def _rewrite_call_names_in_stmt(stmt: ast.Stmt, rename: dict[str, str]) -> None:
+    if isinstance(stmt, ast.LetStmt):
+        _rewrite_call_names_in_expr(stmt.value, rename)
+    elif isinstance(stmt, ast.AssignStmt):
+        _rewrite_call_names_in_expr(stmt.target, rename)
+        _rewrite_call_names_in_expr(stmt.value, rename)
+    elif isinstance(stmt, ast.ExprStmt):
+        _rewrite_call_names_in_expr(stmt.expr, rename)
+    elif isinstance(stmt, ast.ReturnStmt):
+        _rewrite_call_names_in_expr(stmt.value, rename)
+    elif isinstance(stmt, ast.IfStmt):
+        _rewrite_call_names_in_expr(stmt.cond, rename)
+        _rewrite_call_names_in_block(stmt.then_block, rename)
+        if stmt.else_block:
+            _rewrite_call_names_in_block(stmt.else_block, rename)
+    elif isinstance(stmt, ast.WhileStmt):
+        _rewrite_call_names_in_expr(stmt.cond, rename)
+        _rewrite_call_names_in_block(stmt.body, rename)
+    elif isinstance(stmt, ast.SpawnStmt):
+        _rewrite_call_names_in_expr(stmt.expr, rename)
+    elif isinstance(stmt, ast.Block):
+        _rewrite_call_names_in_block(stmt, rename)
+
+
+def _rewrite_call_names_in_block(block: ast.Block, rename: dict[str, str]) -> None:
+    for stmt in block.stmts:
+        _rewrite_call_names_in_stmt(stmt, rename)
+
+
+def _rename_module_functions(module: ast.Module, module_name: str, keep_main: bool) -> dict[str, str]:
+    rename: dict[str, str] = {}
+    for item in module.items:
+        if isinstance(item, ast.Function) and (item.name != "main" or not keep_main):
+            rename[item.name] = f"{module_name}__{item.name}"
+    for item in module.items:
+        if isinstance(item, ast.Function):
+            if item.name in rename:
+                item.name = rename[item.name]
+            _rewrite_call_names_in_block(item.body, rename)
+    return rename
+
+
+def _parse_source_to_module(source: str, diag: DiagnosticBag) -> ast.Module:
+    tokens = Lexer(source, diag).scan()
+    return Parser(tokens, diag).parse()
+
+
+def _resolve_imports(module: ast.Module, base_path: Path | None, diag: DiagnosticBag) -> ast.Module:
+    imported_items: list[object] = []
+    imported_renames: dict[str, str] = {}
+    seen: set[Path] = set()
+
+    def load_import(path_text: str, parent: Path) -> None:
+        imp_path = (parent / path_text).resolve()
+        if imp_path in seen:
+            return
+        seen.add(imp_path)
+        if not imp_path.exists():
+            diag.error(Span(0, 0, 1, 1), f"import 文件不存在: {imp_path}")
+            return
+        try:
+            imp_source = imp_path.read_text(encoding="utf-8-sig")
+        except OSError as exc:
+            diag.error(Span(0, 0, 1, 1), f"import 文件读取失败: {imp_path}: {exc}")
+            return
+        imp_module = _parse_source_to_module(imp_source, diag)
+        for item in list(imp_module.items):
+            if isinstance(item, ast.ImportDecl):
+                load_import(item.path, imp_path.parent)
+        local_rename = _rename_module_functions(imp_module, _module_name_for_path(imp_path), keep_main=False)
+        for original, mangled in local_rename.items():
+            if original in imported_renames and imported_renames[original] != mangled:
+                diag.error(Span(0, 0, 1, 1), f"import 函数名冲突: {original}")
+            else:
+                imported_renames[original] = mangled
+        imported_items.extend(item for item in imp_module.items if not isinstance(item, ast.ImportDecl))
+
+    imports = [item for item in module.items if isinstance(item, ast.ImportDecl)]
+    if not imports:
+        return module
+    if imports:
+        if base_path is None:
+            diag.error(imports[0].span, "当前编译入口没有文件路径，无法解析 import")
+        else:
+            for item in imports:
+                load_import(item.path, base_path.parent)
+
+    entry_name = _module_name_for_path(base_path) if base_path else "main"
+    local_names = _collect_local_function_names(module)
+    visible_imports = {k: v for k, v in imported_renames.items() if k not in local_names}
+    for item in module.items:
+        if isinstance(item, ast.Function):
+            _rewrite_call_names_in_block(item.body, visible_imports)
+    _rename_module_functions(module, entry_name, keep_main=True)
+    own_items = [item for item in module.items if not isinstance(item, ast.ImportDecl)]
+    return ast.Module(module.span, imported_items + own_items)
+
+
 def compile_source(
     source: str,
     mode: str = "full",
@@ -265,6 +411,7 @@ def compile_source(
     build_dir: str | None = None,
     source_stem: str = "program",
     run_exe: bool = False,
+    source_path: str | None = None,
 ) -> BuildResult:
     diag = DiagnosticBag()
     timeline: list[StageResult] = []
@@ -296,6 +443,7 @@ def compile_source(
 
     parser = Parser(tokens, diag)
     module = parser.parse()
+    module = _resolve_imports(module, Path(source_path).resolve() if source_path else None, diag)
     artifacts.ast_text = "\n".join(_ast_dump(module))
     stage("Parser", "failed" if diag.has_errors() else "ok", f"items={len(module.items)}")
     if diag.has_errors():

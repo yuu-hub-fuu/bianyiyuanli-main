@@ -39,6 +39,9 @@ WIN64_XMM_ARG_REGS = ["xmm0", "xmm1", "xmm2", "xmm3"]
 _RUNTIME_BUILTINS = {
     "print": "nx_print_i32",  # default; resolves to nx_print_f64 when arg is f64
     "panic": "nx_panic",
+    "read_i32": "nx_read_i32",
+    "read_f64": "nx_read_f64",
+    "len": "nx_array_len",
     "chan": "nx_chan_new",
     "send": "nx_chan_send",
     "recv": "nx_chan_recv",
@@ -50,6 +53,9 @@ _RUNTIME_BUILTINS = {
 _RUNTIME_SIGS: dict[str, tuple[list[str], str]] = {
     "print": (["i64"], "void"),
     "panic": (["str"], "void"),
+    "read_i32": ([], "i64"),
+    "read_f64": ([], "f64"),
+    "len": (["i64"], "i64"),
     "chan": (["i64"], "i64"),
     "send": (["i64", "i64"], "void"),
     "recv": (["i64"], "i64"),
@@ -536,6 +542,8 @@ def _emit_call_args(ctx: _FunctionContext, args: list[str], param_types: list[st
 
 def _resolve_print_target(ctx: _FunctionContext, args: list[str]) -> str:
     """`print()` is the only polymorphic builtin: dispatch by arg type."""
+    if args and ctx.type_of(args[0]) == "str":
+        return "nx_print_str"
     if args and _is_float(ctx.type_of(args[0])):
         return "nx_print_f64"
     return "nx_print_i32"
@@ -647,14 +655,15 @@ def _emit_array_new(ctx: _FunctionContext, ins: MIRInstr) -> None:
     if not ins.dst:
         return
     n = len(ins.args)
-    size = max(8, 8 * n)
+    size = 8 * (n + 1)
     ctx.body.append(f"    mov rcx, {size}")
     ctx.body.append("    call nx_alloc")
     ctx.body.append(f"    mov {ctx.loc(ins.dst)}, rax")
+    ctx.body.append(f"    mov qword ptr [rax], {n}")
     for i, a in enumerate(ins.args):
         ctx.body.append(f"    mov rcx, {ctx.loc(ins.dst)}")
         _emit_load(ctx, "rdx", a)
-        ctx.body.append(f"    mov qword ptr [rcx+{i*8}], rdx")
+        ctx.body.append(f"    mov qword ptr [rcx+{8 + i*8}], rdx")
 
 
 def _emit_array_get(ctx: _FunctionContext, ins: MIRInstr) -> None:
@@ -662,7 +671,7 @@ def _emit_array_get(ctx: _FunctionContext, ins: MIRInstr) -> None:
         return
     _emit_load(ctx, "rax", ins.args[0])
     _emit_load(ctx, "rcx", ins.args[1])
-    ctx.body.append("    mov rax, qword ptr [rax+rcx*8]")
+    ctx.body.append("    mov rax, qword ptr [rax+8+rcx*8]")
     ctx.body.append(f"    mov {ctx.loc(ins.dst)}, rax")
 
 
@@ -672,7 +681,7 @@ def _emit_array_set(ctx: _FunctionContext, ins: MIRInstr) -> None:
     _emit_load(ctx, "rax", ins.args[0])
     _emit_load(ctx, "rcx", ins.args[1])
     _emit_load(ctx, "rdx", ins.args[2])
-    ctx.body.append("    mov qword ptr [rax+rcx*8], rdx")
+    ctx.body.append("    mov qword ptr [rax+8+rcx*8], rdx")
 
 
 def _emit_ret(ctx: _FunctionContext, ins: MIRInstr) -> None:

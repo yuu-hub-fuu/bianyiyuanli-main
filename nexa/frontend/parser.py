@@ -37,10 +37,17 @@ class Parser:
                 items.append(self._parse_macro())
             elif self._match(TokenKind.STRUCT):
                 items.append(self._parse_struct())
+            elif self._match(TokenKind.IMPORT):
+                items.append(self._parse_import())
             else:
-                self._error_here("期望顶层定义 fn/macro/struct")
+                self._error_here("期望顶层定义 import/fn/macro/struct")
                 self._sync_top()
         return ast.Module(self._span_of(0), items)
+
+    def _parse_import(self) -> ast.ImportDecl:
+        path = self._expect(TokenKind.STRING, 'import 需要字符串路径，例如 import "math.nx";')
+        self._expect(TokenKind.SEMI, "import 缺少分号", fix="在 import 后插入 ';'")
+        return ast.ImportDecl(path.span, path.lexeme)
 
     def _parse_struct(self) -> ast.StructDef:
         name = self._expect(TokenKind.IDENT, "期望结构体名")
@@ -319,7 +326,7 @@ class Parser:
             self._advance()
 
     def _sync_top(self) -> None:
-        while self._peek().kind not in {TokenKind.FN, TokenKind.MACRO, TokenKind.STRUCT, TokenKind.EOF}:
+        while self._peek().kind not in {TokenKind.IMPORT, TokenKind.FN, TokenKind.MACRO, TokenKind.STRUCT, TokenKind.EOF}:
             self._advance()
 
     def _span_of(self, idx: int) -> Span:

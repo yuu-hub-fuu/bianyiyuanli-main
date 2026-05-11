@@ -42,6 +42,8 @@ class Checker:
         self.functions: dict[str, FuncSig] = {
             "print": FuncSig([I32], VOID),
             "panic": FuncSig([STR], VOID),
+            "read_i32": FuncSig([], I32),
+            "read_f64": FuncSig([], F64),
             "chan": FuncSig([I32], channel(I32)),
             "send": FuncSig([channel(I32), I32], VOID),
             "recv": FuncSig([channel(I32)], I32),
@@ -323,6 +325,14 @@ class Checker:
             expr.inferred_type = str(I32)
             return I32
         callee = expr.callee.name
+        if callee == "len":
+            if len(expr.args) != 1:
+                self.diag.error(expr.span, "len 需要 1 个参数")
+            arg_types = [self._check_expr(arg, owner_fn) for arg in expr.args]
+            if len(arg_types) == 1 and arg_types[0].name != "Array":
+                self.diag.error(expr.args[0].span, f"len 参数必须是 Array[T]，实际 {arg_types[0]}")
+            expr.inferred_type = str(I32)
+            return I32
         sig = self.functions.get(callee)
         if sig is None:
             self.diag.error(expr.span, f"未定义函数: {callee}")
@@ -332,10 +342,8 @@ class Checker:
             return self._check_generic_call(expr, sig, owner_fn)
 
         # `print` is intentionally polymorphic over the primitive scalar
-        # types: int, float, and bool. The native backend dispatches to
-        # either nx_print_i32 or nx_print_f64 based on the runtime arg
-        # type, and the VM just str()s the value. Skip the strict type
-        # check to keep the source language ergonomic for both modes.
+        # types and strings. The native backend dispatches to the matching
+        # runtime helper, and the VM just str()s the value.
         if callee == "print":
             if len(expr.args) != 1:
                 self.diag.error(expr.span, "参数数量不匹配: 期望 1")

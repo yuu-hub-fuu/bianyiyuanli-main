@@ -12,9 +12,11 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 
 extern long long nx_user_main(void);
+void nx_panic(const char* msg);
 
 void nx_print_i32(long long v) {
     printf("%lld\n", v);
@@ -27,6 +29,33 @@ void nx_print_f64(double v) {
      * magnitudes). */
     printf("%g\n", v);
     fflush(stdout);
+}
+
+void nx_print_str(const char* v) {
+    printf("%s\n", v ? v : "(null)");
+    fflush(stdout);
+}
+
+long long nx_read_i32(void) {
+    long long v = 0;
+    if (scanf("%lld", &v) != 1) {
+        nx_panic("read_i32 failed");
+    }
+    return v;
+}
+
+double nx_read_f64(void) {
+    double v = 0.0;
+    if (scanf("%lf", &v) != 1) {
+        nx_panic("read_f64 failed");
+    }
+    return v;
+}
+
+long long nx_array_len(long long arr) {
+    long long* p = (long long*)(intptr_t)arr;
+    if (!p) nx_panic("len on null array");
+    return p[0];
 }
 
 void nx_panic(const char* msg) {

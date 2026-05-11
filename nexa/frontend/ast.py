@@ -183,6 +183,11 @@ class StructDef(Node):
 
 
 @dataclass(slots=True)
+class ImportDecl(Node):
+    path: str
+
+
+@dataclass(slots=True)
 class Function(Node):
     name: str
     params: list[Param]
