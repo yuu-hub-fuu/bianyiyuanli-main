@@ -109,3 +109,18 @@ fn main() -> i32 {
     out_lines = [ln.strip() for ln in res.exe_stdout.splitlines() if ln.strip()]
     assert out_lines[:3] == ["3.75", "7.5", "1"]
     assert res.exe_exit_code == 42
+
+
+def test_native_len_and_print_str(tmp_path: Path):
+    src = """
+fn main() -> i32 {
+    let xs: Array[i32] = [10, 20, 30, 40];
+    print("hello native");
+    return len(xs);
+}
+"""
+    res = _compile_and_run(src, tmp_path, "lenstr")
+    assert "hello native" in res.exe_stdout
+    assert res.exe_exit_code == 4
+    assert "nx_array_len" in res.build.asm_text
+    assert "nx_print_str" in res.build.asm_text

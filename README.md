@@ -1,75 +1,490 @@
 # Nexa Compiler Project
 
-Nexa is a compiler-principles course project. It implements a small teaching language and a complete local toolchain from source code to lexical tables, AST, semantic diagnostics, HIR/MIR, optimization, CFG, LLVM IR, real Win64 x86-64 assembly, native build, and visual inspection.
+Nexa is a compiler-principles course project. It implements a compact teaching language and a complete local toolchain from source code to lexical tables, AST, semantic diagnostics, HIR/MIR, optimization, CFG, register allocation, LLVM IR, Win64 x86-64 assembly, native `.exe` build output, VM execution, and visual inspection.
 
 ## Quick Start
 
 ```bash
+python -m pip install -e .
 python -m pip install pytest
-python nexa_cli.py example.nx --mode core --dump tables --run
-python nexa_cli.py example.nx --mode full --dump all --run --trace --report out/report.html
-pytest -q tests -p no:cacheprovider --tb=short
+
+python nexa_cli.py example.nx --mode full --run
+python nexa_cli.py example.nx --mode full --dump all --run --trace --export-dir out --report out/report.html
+python -m pytest
+```
+
+If you only want to use the package from the current checkout without installing dependencies again:
+
+```bash
+python -m pip install -e . --no-deps
 ```
 
 ## Language Features
 
-- Core syntax: variables, assignment, arithmetic/logical expressions, functions, `if`, `while`, `return`, and blocks.
-- Types and data: `i32`, `f64`, `bool`, `str`, structs, arrays, indexing, and assignment.
-- Teaching extensions: macros, generic monomorphization demo, channels/select subset, diagnostics with fix suggestions, and report export.
-- Optimization: constant propagation, copy propagation, constant folding, algebraic simplification, dead-code elimination, unreachable-code elimination, common subexpression elimination, loop-invariant code motion, strength reduction, and small-function inlining.
+### Core Syntax
+
+Nexa currently supports:
+
+- variable declarations with optional type inference
+- assignment
+- arithmetic, comparison, and logical expressions
+- functions and direct function calls
+- `if` / `else`
+- `while`
+- `return`
+- nested blocks and block expressions
+- single-line comments with `//`
+
+Example:
+
+```nx
+fn add(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+
+fn main() -> i32 {
+    let x: i32 = add(1, 2);
+    if x > 0 { return x; }
+    return 0;
+}
+```
+
+### Types And Data
+
+Supported types include:
+
+- `i32`
+- `f64`
+- `bool`
+- `str`
+- `void`
+- `Array[T]`
+- user-defined `struct`
+- `Chan[i32]`
+
+Examples:
+
+```nx
+struct Pair { x: i32, y: i32 }
+
+fn main() -> i32 {
+    let n: i32 = 10;
+    let f: f64 = 1.5 + 2.25;
+    let ok: bool = f > 3.0;
+
+    let p: Pair = Pair { x: n, y: 20 };
+    p.x = p.x + 5;
+
+    let xs: Array[i32] = [1, 2, 3, 4];
+    xs[2] = xs[0] + xs[3];
+
+    if ok { return p.x + xs[2]; }
+    return 0;
+}
+```
+
+Arrays support literal construction, indexing, and indexed assignment:
+
+```nx
+let xs: Array[i32] = [1, 2, 3];
+let a: i32 = xs[0];
+xs[1] = xs[0] + xs[2];
+```
+
+Structs support declaration, literal construction, field access, and field assignment:
+
+```nx
+struct Pair { x: i32, y: i32 }
+let p: Pair = Pair { x: 1, y: 2 };
+p.x = p.x + 1;
+```
+
+### Teaching Extensions
+
+Nexa also includes course-oriented language features:
+
+- AST-level macros
+- generic functions with monomorphization
+- a simple `Ord` generic-bound demo
+- `chan`, `send`, `recv`
+- `select { recv(...) => ... default => ... }`
+- `spawn` syntax
+- semantic diagnostics with fix suggestions
+
+Example:
+
+```nx
+macro unless(cond, body) {
+    if !cond { body; }
+}
+
+fn max[T: Ord](a: T, b: T) -> T {
+    if a > b { return a; }
+    return b;
+}
+```
+
+## Built-In Functions
+
+Currently available built-ins:
+
+```text
+print(value)           -> void     # supports i32, f64, bool, and str in current backends
+panic(str)             -> void
+read_i32()             -> i32
+read_f64()             -> f64
+len(Array[T])          -> i32
+chan(i32)              -> Chan[i32]
+send(Chan[i32], i32)   -> void
+recv(Chan[i32])        -> i32
+```
+
+`read_i32` and `read_f64` are simple stdin helpers. They are intentionally smaller than C `scanf`: each call reads one value of the declared type.
+
+## Modes
+
+Nexa has two modes:
+
+```text
+core  - stable basic teaching path
+full  - enables macro expansion and generic monomorphization demos
+```
+
+Default mode is `full`.
+
+Use `full` for `example.nx`, because the sample program uses the `unless` macro:
+
+```bash
+python nexa_cli.py example.nx --mode full --run
+```
+
+If you run the same file in `core` mode, semantic analysis will report `unless` as an undefined function because macro expansion is disabled.
 
 ## Compiler Pipeline
 
 The main pipeline is:
 
 ```text
-source -> lexer -> parser -> macro expansion -> semantic check
-       -> HIR -> optimization -> MIR/CFG -> register allocation
-       -> LLVM IR / Win64 x86-64 assembly / native executable
+source
+ -> lexer
+ -> parser
+ -> macro expansion
+ -> semantic check
+ -> generic monomorphization
+ -> HIR generation
+ -> HIR optimization
+ -> MIR / CFG
+ -> register allocation
+ -> LLVM IR / Win64 x86-64 assembly / native executable
+ -> optional VM run or native exe run
 ```
 
-Important output artifacts include:
+Important artifacts:
 
-- keyword, delimiter, identifier, and constant tables
+- token stream
+- keyword table
+- delimiter table
+- identifier table
+- constant table
 - AST text/tree output
 - symbol table
-- raw and optimized HIR quadruples
+- raw HIR quadruples
+- optimized HIR quadruples
 - CFG blocks and edges
+- register allocation result used by the backend
 - LLVM IR
-- real Win64 x86-64 assembly
-- optional native `.exe` build output
+- Win64 x86-64 assembly
+- native `.o` and `.exe`
+- VM run result and trace
+- HTML report
+- AST/CFG DOT files and optional rendered graph images
 
-## CLI
+## Optimization
 
-Useful commands:
+HIR optimization currently includes:
+
+- constant propagation
+- copy propagation
+- constant folding
+- algebraic simplification
+- dead-code elimination
+- unreachable-code elimination
+- common subexpression elimination
+- loop-invariant code motion
+- strength reduction
+- small-function inlining
+
+The CLI can show raw and optimized HIR:
 
 ```bash
-python nexa_cli.py example.nx --mode core --dump tables --run
-python nexa_cli.py example.nx --mode full --dump all --run --trace
-python nexa_cli.py example.nx --emit-llvm
-python nexa_cli.py example.nx --build --run-exe
-python nexa_cli.py example.nx --report out/report.html
+python nexa_cli.py example.nx --mode full --dump hir
 ```
+
+## CLI Usage
+
+Show all options:
+
+```bash
+python nexa_cli.py --help
+```
+
+General shape:
+
+```bash
+python nexa_cli.py <source.nx> [options]
+```
+
+### Dump Stage Outputs
+
+```bash
+python nexa_cli.py example.nx --mode full --dump tokens
+python nexa_cli.py example.nx --mode full --dump tables
+python nexa_cli.py example.nx --mode full --dump ast
+python nexa_cli.py example.nx --mode full --dump hir
+python nexa_cli.py example.nx --mode full --dump cfg
+python nexa_cli.py example.nx --mode full --dump asm
+python nexa_cli.py example.nx --mode full --dump all
+```
+
+`--dump asm` prints the generated assembly text to the terminal.
+
+### VM Run
+
+Run through the HIR VM:
+
+```bash
+python nexa_cli.py example.nx --mode full --run
+```
+
+Run with VM trace:
+
+```bash
+python nexa_cli.py example.nx --mode full --run --trace
+```
+
+The VM path is useful for teaching, debugging, and deterministic inspection of the optimized HIR execution.
+
+### LLVM IR
+
+Print LLVM IR:
+
+```bash
+python nexa_cli.py example.nx --mode full --emit-llvm
+```
+
+LLVM IR is another backend artifact. It is useful for showing how Nexa can target a modern compiler IR.
+
+### Native Win64 Build
+
+Build native artifacts:
+
+```bash
+python nexa_cli.py example.nx --mode full --build
+```
+
+This emits:
+
+```text
+out/example.s
+out/example.o
+out/example.exe
+```
+
+Build and run the produced executable:
+
+```bash
+python nexa_cli.py example.nx --mode full --build --run-exe
+```
+
+Use a custom build directory:
+
+```bash
+python nexa_cli.py example.nx --mode full --build --build-dir native_out
+```
+
+Native build requires a GCC/MinGW64 toolchain on `PATH`.
+
+### Graph Export
+
+Export AST and CFG DOT files:
+
+```bash
+python nexa_cli.py example.nx --mode full --export-dir out
+```
+
+Generated files include:
+
+```text
+out/ast.dot
+out/cfg_<fn>.dot
+```
+
+If Graphviz is available, matching SVG files may also be rendered.
+
+### HTML Report
+
+Generate a report:
+
+```bash
+python nexa_cli.py example.nx --mode full --dump all --run --trace --export-dir out --report out/report.html
+```
+
+Reports include lexical tables, symbols, HIR quadruples, CFG, run output, diagnostics, and optional graph artifacts.
 
 ## Desktop IDE
 
-The IDE entrypoint is a Python tkinter desktop GUI:
+Launch the tkinter desktop IDE:
 
 ```bash
 python -m nexa.ide.app
 ```
 
-It is not a FastAPI/WebSocket browser IDE. The desktop IDE supports source editing, Tokens, AST, symbol table, HIR, CFG, ASM, LLVM, Timeline, Run, Trace, diagnostics, quick fixes, and HTML report export.
+The IDE supports:
+
+- source editing
+- file tree/open/save
+- Tokens view
+- AST view
+- symbol table
+- HIR view
+- CFG view
+- ASM view
+- LLVM IR view
+- Timeline view
+- VM run
+- VM trace
+- diagnostics panel
+- jump-to-diagnostic
+- quick fixes
+- HTML report export
+
+Useful shortcuts:
+
+```text
+Ctrl+Enter   Compile
+F5           Run with trace
+Ctrl+O       Open
+Ctrl+S       Save
+F1           Shortcuts
+Ctrl+Wheel   Zoom AST/CFG graph
+```
+
+This is a tkinter desktop GUI, not a FastAPI/WebSocket browser IDE.
 
 ## Native Backend
 
-The x86-64 backend emits real Win64 assembly, assembles it with the MinGW64 toolchain, links it with the Nexa runtime, and can run the generated executable. It also includes local instruction-level optimizations such as `lea` arithmetic, shift-based multiplication by powers of two, `test` zero checks, `xor` zeroing, and redundant move elimination.
+The x86-64 backend emits real Win64 assembly using Intel syntax, assembles it with GCC/MinGW64, links it with the Nexa runtime, and can run the generated executable.
 
-## Graph And Report Export
+Native backend support includes:
 
-Compilation with an export directory writes:
+- integer arithmetic and comparisons
+- `f64` arithmetic and comparisons using SSE instructions
+- polymorphic `print` dispatch for `i32`, `f64`, `bool`, and `str`
+- `read_i32`, `read_f64`, and `len(Array[T])` runtime helpers
+- function calls
+- `if` / `while`
+- arrays
+- structs
+- generic monomorphized functions
+- `panic`
+- single-threaded channel runtime helpers
 
-- `out/ast.dot`
-- `out/cfg_<fn>.dot`
+The generated assembly uses runtime helpers from:
 
-If Graphviz is available, matching SVG files can be rendered. HTML reports include lexical tables, symbols, HIR quadruples, CFG, run output, diagnostics, and optional graph artifacts.
+```text
+nexa/runtime/nexa_rt.c
+```
+
+The native backend also performs local instruction-level improvements such as:
+
+- `lea` arithmetic forms
+- shift-based multiplication by powers of two
+- `test` for zero checks
+- `xor` zeroing
+- redundant move elimination
+
+## VM Runtime
+
+`--run` executes optimized HIR in `nexa.vm.HIRVM`.
+
+The VM supports:
+
+- function calls
+- arithmetic and comparison operations
+- `i32`, `f64`, `bool`, and `str` values
+- arrays
+- structs
+- channels/select subset
+- stdout collection
+- execution trace
+- runtime error reporting
+
+The VM is the easiest route for classroom demonstration. The native backend is the route for showing a real assembly/link/run pipeline.
+
+## Testing
+
+Run all tests:
+
+```bash
+python -m pytest
+```
+
+Short test command:
+
+```bash
+pytest -q tests -p no:cacheprovider --tb=short
+```
+
+Native backend tests are skipped automatically if GCC is not available on `PATH`.
+
+## Example Program
+
+`example.nx` demonstrates macros, generics, channels/select, and runtime checking:
+
+```nx
+macro unless(cond, body) {
+    if !cond { body; }
+}
+
+struct Pair { x: i32, y: i32 }
+
+fn max[T: Ord](a: T, b: T) -> T {
+    if a > b { return a; }
+    return b;
+}
+
+fn main() -> i32 {
+    let ch: Chan[i32] = chan(1);
+    send(ch, 42);
+    let ans: i32 = select {
+        recv(ch) => { 42; }
+        default => { 0; }
+    };
+    unless(ans == 42, { panic("bad"); });
+    return max(ans, 40);
+}
+```
+
+Run it:
+
+```bash
+python nexa_cli.py example.nx --mode full --run
+```
+
+Expected result:
+
+```text
+exit=42
+```
+
+## Current Limits
+
+Nexa is still a course-project language, not an industrial language. Current limits include:
+
+- no formatted `scanf` equivalent; only `read_i32()` and `read_f64()` are provided
+- no modules/import system
+- no heap lifetime management beyond the simple runtime model
+- no full concurrency semantics in the native backend
+- `spawn` is still mainly syntax/teaching surface
+- LLVM IR is an artifact backend and does not cover every extended feature as a production target
+- language and runtime are intentionally small for compiler-principles demonstration

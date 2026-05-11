@@ -570,8 +570,11 @@ fn main() -> i32 {
 当前语义检查器预置以下内置函数：
 
 ```text
-print(i32) -> void
+print(value) -> void      // 支持 i32、f64、bool、str
 panic(str) -> void
+read_i32() -> i32
+read_f64() -> f64
+len(Array[T]) -> i32
 chan(i32) -> Chan[i32]
 send(Chan[i32], i32) -> void
 recv(Chan[i32]) -> i32
@@ -581,12 +584,20 @@ recv(Chan[i32]) -> i32
 
 ```nx
 print(123);
+print("hello");
 panic("bad");
+
+let a: i32 = read_i32();
+let b: f64 = read_f64();
+let xs: Array[i32] = [1, 2, 3];
+let n: i32 = len(xs);
 
 let ch: Chan[i32] = chan(1);
 send(ch, 42);
 let x: i32 = recv(ch);
 ```
+
+`read_i32` 和 `read_f64` 是简化输入函数，每次从标准输入读取一个对应类型的值。它们不是 C 语言 `scanf` 那样的格式化输入接口。
 
 ## 12. 完整示例
 
@@ -682,7 +693,12 @@ python nexa_cli.py example.nx --dump cfg
 python nexa_cli.py example.nx --dump asm
 ```
 
-当前汇编是教学型 x86-64 文本，用于展示目标代码生成，不会自动汇编链接成可执行文件。
+当前汇编是 Win64 x86-64 Intel 语法文本。只使用 `--dump asm` 时会把汇编作为阶段产物输出；如果需要真正生成 `.exe`，使用 `--build`，编译器会调用 GCC/MinGW64 完成汇编、链接并生成本机可执行文件。
+
+```bash
+python nexa_cli.py example.nx --mode full --build
+python nexa_cli.py example.nx --mode full --build --run-exe
+```
 
 ### 13.8 输出 LLVM IR
 
@@ -756,10 +772,9 @@ select/channel 教学运行时
 当前 Nexa 是课程设计语言，不是完整工业语言。主要限制包括：
 
 ```text
-数组和浮点数已支持 VM 运行路径，但后端汇编/LLVM 对数组和浮点仍以教学展示为主
-结构体支持构造、字段读取和字段赋值，但后端汇编/LLVM 对结构体仍以教学展示为主
-教学型 x86-64 汇编不会自动汇编链接
-真实运行依赖 HIRVM，而不是本机 exe
+当前没有模块/import 系统，不支持多文件联合编译
+没有完整的堆对象生命周期管理，数组和结构体主要依赖简单运行时模型
+没有格式化 scanf 接口，只提供 read_i32() 和 read_f64()
 channel/select 是教学子集
 spawn 并发执行支持有限
 LLVM IR 后端不是所有扩展特性都适合直接生成本机程序

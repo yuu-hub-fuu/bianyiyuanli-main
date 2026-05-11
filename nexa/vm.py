@@ -39,6 +39,12 @@ class HIRVM:
         if name == "print":
             self.output.append(str(args[0]))
             return 0
+        if name == "read_i32":
+            return int(input())
+        if name == "read_f64":
+            return float(input())
+        if name == "len":
+            return len(args[0])
         if name == "panic":
             raise RuntimeError(str(args[0]))
         if name == "chan":
