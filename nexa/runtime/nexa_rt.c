@@ -14,9 +14,12 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <time.h>
+#include <ctype.h>
 
 extern long long nx_user_main(void);
 void nx_panic(const char* msg);
+void* nx_alloc(long long n);
 
 void nx_print_i32(long long v) {
     printf("%lld\n", v);
@@ -52,10 +55,277 @@ double nx_read_f64(void) {
     return v;
 }
 
+char* nx_read_str(void) {
+    char buf[4096];
+    if (scanf("%4095s", buf) != 1) {
+        nx_panic("read_str failed");
+    }
+    size_t n = strlen(buf);
+    char* out = (char*)nx_alloc((long long)n + 1);
+    memcpy(out, buf, n + 1);
+    return out;
+}
+
 long long nx_array_len(long long arr) {
     long long* p = (long long*)(intptr_t)arr;
     if (!p) nx_panic("len on null array");
     return p[0];
+}
+
+long long nx_str_len(const char* s) {
+    return s ? (long long)strlen(s) : 0;
+}
+
+char* nx_str_clone(const char* s) {
+    if (!s) s = "";
+    size_t n = strlen(s);
+    char* out = (char*)nx_alloc((long long)n + 1);
+    memcpy(out, s, n + 1);
+    return out;
+}
+
+char* nx_str_cat(const char* a, const char* b) {
+    if (!a) a = "";
+    if (!b) b = "";
+    size_t na = strlen(a), nb = strlen(b);
+    char* out = (char*)nx_alloc((long long)(na + nb + 1));
+    memcpy(out, a, na);
+    memcpy(out + na, b, nb + 1);
+    return out;
+}
+
+char* nx_substr(const char* s, long long start, long long count) {
+    if (!s) s = "";
+    size_t n = strlen(s);
+    if (start < 0) start = 0;
+    if (count < 0) count = 0;
+    size_t pos = (size_t)start;
+    if (pos > n) pos = n;
+    size_t take = (size_t)count;
+    if (take > n - pos) take = n - pos;
+    char* out = (char*)nx_alloc((long long)take + 1);
+    memcpy(out, s + pos, take);
+    out[take] = '\0';
+    return out;
+}
+
+long long nx_find(const char* haystack, const char* needle) {
+    if (!haystack) haystack = "";
+    if (!needle) needle = "";
+    char* p = strstr(haystack, needle);
+    return p ? (long long)(p - haystack) : -1;
+}
+
+long long nx_contains(const char* haystack, const char* needle) {
+    return nx_find(haystack, needle) >= 0 ? 1 : 0;
+}
+
+long long nx_starts_with(const char* s, const char* prefix) {
+    if (!s) s = "";
+    if (!prefix) prefix = "";
+    size_t n = strlen(prefix);
+    return strncmp(s, prefix, n) == 0 ? 1 : 0;
+}
+
+long long nx_ends_with(const char* s, const char* suffix) {
+    if (!s) s = "";
+    if (!suffix) suffix = "";
+    size_t ns = strlen(s), nt = strlen(suffix);
+    if (nt > ns) return 0;
+    return strcmp(s + ns - nt, suffix) == 0 ? 1 : 0;
+}
+
+char* nx_replace(const char* s, const char* old, const char* repl) {
+    if (!s) s = "";
+    if (!old) old = "";
+    if (!repl) repl = "";
+    size_t ns = strlen(s), no = strlen(old), nr = strlen(repl);
+    if (no == 0) return nx_str_clone(s);
+    size_t hits = 0;
+    const char* p = s;
+    while ((p = strstr(p, old)) != NULL) {
+        hits++;
+        p += no;
+    }
+    size_t out_n = ns + (nr >= no ? hits * (nr - no) : 0);
+    if (nr < no) {
+        out_n = ns - hits * (no - nr);
+    }
+    char* out = (char*)nx_alloc((long long)out_n + 1);
+    char* w = out;
+    p = s;
+    const char* q;
+    while ((q = strstr(p, old)) != NULL) {
+        size_t chunk = (size_t)(q - p);
+        memcpy(w, p, chunk);
+        w += chunk;
+        memcpy(w, repl, nr);
+        w += nr;
+        p = q + no;
+    }
+    strcpy(w, p);
+    return out;
+}
+
+char* nx_str_remove(const char* s, const char* needle) {
+    return nx_replace(s, needle, "");
+}
+
+char* nx_trim(const char* s) {
+    if (!s) s = "";
+    const char* a = s;
+    while (*a && isspace((unsigned char)*a)) a++;
+    const char* b = s + strlen(s);
+    while (b > a && isspace((unsigned char)b[-1])) b--;
+    size_t n = (size_t)(b - a);
+    char* out = (char*)nx_alloc((long long)n + 1);
+    memcpy(out, a, n);
+    out[n] = '\0';
+    return out;
+}
+
+char* nx_lower(const char* s) {
+    char* out = nx_str_clone(s);
+    for (char* p = out; *p; ++p) *p = (char)tolower((unsigned char)*p);
+    return out;
+}
+
+char* nx_upper(const char* s) {
+    char* out = nx_str_clone(s);
+    for (char* p = out; *p; ++p) *p = (char)toupper((unsigned char)*p);
+    return out;
+}
+
+long long nx_ord(const char* s) {
+    return (s && *s) ? (unsigned char)*s : 0;
+}
+
+char* nx_chr(long long v) {
+    char* out = (char*)nx_alloc(2);
+    out[0] = (char)v;
+    out[1] = '\0';
+    return out;
+}
+
+long long nx_parse_i32(const char* s) {
+    return s ? strtoll(s, NULL, 10) : 0;
+}
+
+double nx_parse_f64(const char* s) {
+    return s ? strtod(s, NULL) : 0.0;
+}
+
+char* nx_to_str_i64(long long v) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%lld", v);
+    return nx_str_clone(buf);
+}
+
+char* nx_to_str_f64(double v) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "%g", v);
+    return nx_str_clone(buf);
+}
+
+long long nx_to_i32_i64(long long v) {
+    return v;
+}
+
+long long nx_to_i32_f64(double v) {
+    return (long long)v;
+}
+
+long long nx_to_i32_str(const char* s) {
+    return nx_parse_i32(s);
+}
+
+double nx_to_f64_i64(long long v) {
+    return (double)v;
+}
+
+double nx_to_f64_f64(double v) {
+    return v;
+}
+
+double nx_to_f64_str(const char* s) {
+    return nx_parse_f64(s);
+}
+
+long long nx_to_bool_i64(long long v) {
+    return v != 0 ? 1 : 0;
+}
+
+long long nx_to_bool_f64(double v) {
+    return v != 0.0 ? 1 : 0;
+}
+
+long long nx_to_bool_str(const char* s) {
+    if (!s || !*s) return 0;
+    if (strcmp(s, "0") == 0 || strcmp(s, "false") == 0 || strcmp(s, "False") == 0) return 0;
+    return 1;
+}
+
+long long nx_abs_i64(long long v) {
+    return v < 0 ? -v : v;
+}
+
+double nx_abs_f64(double v) {
+    return v < 0.0 ? -v : v;
+}
+
+long long nx_min_i64(long long a, long long b) {
+    return a < b ? a : b;
+}
+
+long long nx_max_i64(long long a, long long b) {
+    return a > b ? a : b;
+}
+
+double nx_min_f64(double a, double b) {
+    return a < b ? a : b;
+}
+
+double nx_max_f64(double a, double b) {
+    return a > b ? a : b;
+}
+
+char* nx_min_str(const char* a, const char* b) {
+    if (!a) a = "";
+    if (!b) b = "";
+    return nx_str_clone(strcmp(a, b) <= 0 ? a : b);
+}
+
+char* nx_max_str(const char* a, const char* b) {
+    if (!a) a = "";
+    if (!b) b = "";
+    return nx_str_clone(strcmp(a, b) >= 0 ? a : b);
+}
+
+long long nx_rand(void) {
+    return (long long)rand();
+}
+
+void nx_srand(long long seed) {
+    srand((unsigned int)seed);
+}
+
+long long nx_rand_range(long long lo, long long hi) {
+    if (hi < lo) {
+        long long tmp = lo;
+        lo = hi;
+        hi = tmp;
+    }
+    long long span = hi - lo + 1;
+    if (span <= 0) return lo;
+    return lo + (rand() % span);
+}
+
+long long nx_time(void) {
+    return (long long)time(NULL);
+}
+
+long long nx_clock(void) {
+    return (long long)clock();
 }
 
 void nx_panic(const char* msg) {

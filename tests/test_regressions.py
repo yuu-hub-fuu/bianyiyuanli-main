@@ -191,6 +191,46 @@ fn main() -> i32 {
     assert 'hello' in res.run_stdout
 
 
+def test_string_stdlib_operators_and_helpers_run_in_vm():
+    src = '''
+fn main() -> i32 {
+  let s: str = cat("he", "llo") + " world";
+  let t: str = replace(s, " world", "") - "l";
+  print(upper(substr(t, 0, 2)));
+  if contains(t, "he") && starts_with(t, "h") && ends_with(t, "o") {
+    return len(t) + strlen(t) + find(t, "o") + ord("A") - 65;
+  }
+  return 0;
+}
+'''
+    res = compile_source(src, mode='full', run=True)
+    assert all(d.level != 'error' for d in res.diagnostics)
+    assert res.run_value == 8
+    assert 'HE' in res.run_stdout
+    assert 'call i8* @rt_str_cat' in res.artifacts.llvm_ir
+    assert 'call i8* @rt_str_remove' in res.artifacts.llvm_ir
+    assert 'call void @rt_print_str' in res.artifacts.llvm_ir
+
+
+def test_conversion_random_time_and_math_builtins_run_in_vm():
+    src = '''
+fn main() -> i32 {
+  srand(1);
+  let r: i32 = rand_range(2, 4);
+  let z: f64 = float("2.5");
+  print(str(int("12")));
+  if r >= 2 && r <= 4 && time() > 0 && clock() >= 0 && z > 2.0 {
+    return int(bool("x")) + abs(-3) + min(2, 5) + max(4, 1);
+  }
+  return 0;
+}
+'''
+    res = compile_source(src, mode='full', run=True)
+    assert all(d.level != 'error' for d in res.diagnostics)
+    assert res.run_value == 10
+    assert '12' in res.run_stdout
+
+
 def test_len_rejects_non_array_argument():
     src = 'fn main() -> i32 { return len(1); }'
     res = compile_source(src, mode='core')

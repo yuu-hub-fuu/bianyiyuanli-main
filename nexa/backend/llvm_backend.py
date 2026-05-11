@@ -33,6 +33,8 @@ def validate_llvm_subset(module: HIRModule) -> tuple[bool, str]:
 def _slot_type(ty: str) -> str:
     if ty in {"str", "Chan"} or ty.startswith("Chan"):
         return "i8*"
+    if ty == "f64":
+        return "double"
     return "i32"
 
 
@@ -74,6 +76,36 @@ def emit_llvm_ir(module: HIRModule) -> str:
         "declare i32 @rt_chan_recv(i8*)",
         "declare i1 @rt_chan_ready(i8*)",
         "declare void @rt_panic(i8*)",
+        "declare void @rt_print_i32(i32)",
+        "declare void @rt_print_f64(double)",
+        "declare void @rt_print_str(i8*)",
+        "declare i32 @rt_str_len(i8*)",
+        "declare i8* @rt_str_clone(i8*)",
+        "declare i8* @rt_str_cat(i8*, i8*)",
+        "declare i8* @rt_str_remove(i8*, i8*)",
+        "declare i8* @rt_substr(i8*, i32, i32)",
+        "declare i32 @rt_find(i8*, i8*)",
+        "declare i32 @rt_contains(i8*, i8*)",
+        "declare i32 @rt_starts_with(i8*, i8*)",
+        "declare i32 @rt_ends_with(i8*, i8*)",
+        "declare i8* @rt_replace(i8*, i8*, i8*)",
+        "declare i8* @rt_trim(i8*)",
+        "declare i8* @rt_lower(i8*)",
+        "declare i8* @rt_upper(i8*)",
+        "declare i32 @rt_ord(i8*)",
+        "declare i8* @rt_chr(i32)",
+        "declare i32 @rt_parse_i32(i8*)",
+        "declare double @rt_parse_f64(i8*)",
+        "declare i8* @rt_to_str_i32(i32)",
+        "declare i8* @rt_to_str_f64(double)",
+        "declare i32 @rt_to_i32_str(i8*)",
+        "declare i8* @rt_min_str(i8*, i8*)",
+        "declare i8* @rt_max_str(i8*, i8*)",
+        "declare i32 @rt_rand()",
+        "declare void @rt_srand(i32)",
+        "declare i32 @rt_rand_range(i32, i32)",
+        "declare i32 @rt_time()",
+        "declare i32 @rt_clock()",
         "",
     ]
 
@@ -109,6 +141,12 @@ def emit_llvm_ir(module: HIRModule) -> str:
             try:
                 int(name)
             except ValueError:
+                try:
+                    float(name)
+                except ValueError:
+                    return _Value(f"%{name}", "i32")
+                if "." in name or "e" in name.lower():
+                    return _Value(name, "double")
                 return _Value(f"%{name}", "i32")
             return _Value(name, "i32")
 
@@ -155,6 +193,10 @@ def emit_llvm_ir(module: HIRModule) -> str:
                 if ins.kind == HIRKind.CONST and ins.dst and ins.args:
                     if ins.ty == "str":
                         store(ins.dst, add_string(ins.args[0]), lines)
+                    elif ins.ty == "f64":
+                        name = fresh(ins.dst)
+                        lines.append(f"  {name} = fadd double 0.0, {ins.args[0]}")
+                        store(ins.dst, _Value(name, "double"), lines)
                     elif ins.ty == "bool":
                         name = fresh(ins.dst)
                         value = "1" if ins.args[0] not in {"0", "false", "False"} else "0"
@@ -168,7 +210,24 @@ def emit_llvm_ir(module: HIRModule) -> str:
                     a = load(ins.args[0], lines, ins.dst + "_a")
                     b = load(ins.args[1], lines, ins.dst + "_b")
                     op = ins.op or "+"
-                    if op in {"+", "-", "*", "/", "%"}:
+                    if op in {"+", "-"} and ins.ty == "str":
+                        name = fresh(ins.dst)
+                        target = "rt_str_cat" if op == "+" else "rt_str_remove"
+                        lines.append(f"  {name} = call i8* @{target}(i8* {a.text}, i8* {b.text})")
+                        store(ins.dst, _Value(name, "i8*"), lines)
+                    elif op in {"+", "-", "*", "/"} and (a.ty == "double" or b.ty == "double"):
+                        opcode = {"+": "fadd", "-": "fsub", "*": "fmul", "/": "fdiv"}[op]
+                        name = fresh(ins.dst)
+                        lines.append(f"  {name} = {opcode} double {a.text}, {b.text}")
+                        store(ins.dst, _Value(name, "double"), lines)
+                    elif op in {"==", "!=", "<", "<=", ">", ">="} and (a.ty == "double" or b.ty == "double"):
+                        cmp = {"==": "oeq", "!=": "one", "<": "olt", "<=": "ole", ">": "ogt", ">=": "oge"}[op]
+                        cmp_name = fresh(f"cmp_{ins.dst}")
+                        name = fresh(ins.dst)
+                        lines.append(f"  {cmp_name} = fcmp {cmp} double {a.text}, {b.text}")
+                        lines.append(f"  {name} = zext i1 {cmp_name} to i32")
+                        store(ins.dst, _Value(name, "i32"), lines)
+                    elif op in {"+", "-", "*", "/", "%"}:
                         opcode = {"+": "add", "-": "sub", "*": "mul", "/": "sdiv", "%": "srem"}[op]
                         name = fresh(ins.dst)
                         lines.append(f"  {name} = {opcode} i32 {as_i32(a, lines, ins.dst + '_a')}, {as_i32(b, lines, ins.dst + '_b')}")
@@ -229,6 +288,186 @@ def emit_llvm_ir(module: HIRModule) -> str:
                         if ins.dst:
                             name = fresh(ins.dst)
                             lines.append(f"  {name} = add i32 0, 0")
+                            store(ins.dst, _Value(name, "i32"), lines)
+                    elif ins.op == "print":
+                        arg = call_args[0] if call_args else _Value("0", "i32")
+                        if arg.ty == "i8*":
+                            lines.append(f"  call void @rt_print_str(i8* {arg.text})")
+                        elif arg.ty == "double":
+                            lines.append(f"  call void @rt_print_f64(double {arg.text})")
+                        else:
+                            lines.append(f"  call void @rt_print_i32(i32 {as_i32(arg, lines, ins.dst or 'print')})")
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            lines.append(f"  {name} = add i32 0, 0")
+                            store(ins.dst, _Value(name, "i32"), lines)
+                    elif ins.op == "len" and call_args and call_args[0].ty == "i8*":
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            lines.append(f"  {name} = call i32 @rt_str_len(i8* {call_args[0].text})")
+                            store(ins.dst, _Value(name, "i32"), lines)
+                    elif ins.op in {"cat", "find", "contains", "starts_with", "ends_with"}:
+                        a0 = call_args[0] if call_args else add_string("")
+                        a1 = call_args[1] if len(call_args) > 1 else add_string("")
+                        ret_ty = "i8*" if ins.op == "cat" else "i32"
+                        target = {"cat": "rt_str_cat", "find": "rt_find", "contains": "rt_contains", "starts_with": "rt_starts_with", "ends_with": "rt_ends_with"}[ins.op]
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            lines.append(f"  {name} = call {ret_ty} @{target}(i8* {a0.text}, i8* {a1.text})")
+                            store(ins.dst, _Value(name, ret_ty), lines)
+                    elif ins.op in {"substr", "replace"}:
+                        if ins.op == "substr":
+                            a0 = call_args[0] if call_args else add_string("")
+                            start = as_i32(call_args[1], lines, ins.dst or "substr") if len(call_args) > 1 else "0"
+                            count = as_i32(call_args[2], lines, ins.dst or "substr") if len(call_args) > 2 else "0"
+                            args_text = f"i8* {a0.text}, i32 {start}, i32 {count}"
+                            target = "rt_substr"
+                        else:
+                            a0 = call_args[0] if call_args else add_string("")
+                            a1 = call_args[1] if len(call_args) > 1 else add_string("")
+                            a2 = call_args[2] if len(call_args) > 2 else add_string("")
+                            args_text = f"i8* {a0.text}, i8* {a1.text}, i8* {a2.text}"
+                            target = "rt_replace"
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            lines.append(f"  {name} = call i8* @{target}({args_text})")
+                            store(ins.dst, _Value(name, "i8*"), lines)
+                    elif ins.op in {"trim", "lower", "upper"}:
+                        arg = call_args[0] if call_args else add_string("")
+                        target = {"trim": "rt_trim", "lower": "rt_lower", "upper": "rt_upper"}[ins.op]
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            lines.append(f"  {name} = call i8* @{target}(i8* {arg.text})")
+                            store(ins.dst, _Value(name, "i8*"), lines)
+                    elif ins.op in {"ord", "parse_i32", "parse_f64"}:
+                        arg = call_args[0] if call_args else add_string("")
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            if ins.op == "parse_f64":
+                                lines.append(f"  {name} = call double @rt_parse_f64(i8* {arg.text})")
+                                store(ins.dst, _Value(name, "double"), lines)
+                            else:
+                                target = "rt_ord" if ins.op == "ord" else "rt_parse_i32"
+                                lines.append(f"  {name} = call i32 @{target}(i8* {arg.text})")
+                                store(ins.dst, _Value(name, "i32"), lines)
+                    elif ins.op == "chr":
+                        arg = as_i32(call_args[0], lines, ins.dst or "chr") if call_args else "0"
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            lines.append(f"  {name} = call i8* @rt_chr(i32 {arg})")
+                            store(ins.dst, _Value(name, "i8*"), lines)
+                    elif ins.op in {"str", "to_str"}:
+                        arg = call_args[0] if call_args else _Value("0", "i32")
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            if arg.ty == "i8*":
+                                lines.append(f"  {name} = call i8* @rt_str_clone(i8* {arg.text})")
+                            elif arg.ty == "double":
+                                lines.append(f"  {name} = call i8* @rt_to_str_f64(double {arg.text})")
+                            else:
+                                lines.append(f"  {name} = call i8* @rt_to_str_i32(i32 {as_i32(arg, lines, ins.dst)})")
+                            store(ins.dst, _Value(name, "i8*"), lines)
+                    elif ins.op in {"int", "to_i32"}:
+                        arg = call_args[0] if call_args else _Value("0", "i32")
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            if arg.ty == "i8*":
+                                lines.append(f"  {name} = call i32 @rt_to_i32_str(i8* {arg.text})")
+                            elif arg.ty == "double":
+                                lines.append(f"  {name} = fptosi double {arg.text} to i32")
+                            else:
+                                lines.append(f"  {name} = add i32 0, {as_i32(arg, lines, ins.dst)}")
+                            store(ins.dst, _Value(name, "i32"), lines)
+                    elif ins.op in {"float", "to_f64"}:
+                        arg = call_args[0] if call_args else _Value("0", "i32")
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            if arg.ty == "i8*":
+                                lines.append(f"  {name} = call double @rt_parse_f64(i8* {arg.text})")
+                            elif arg.ty == "double":
+                                lines.append(f"  {name} = fadd double 0.0, {arg.text}")
+                            else:
+                                lines.append(f"  {name} = sitofp i32 {as_i32(arg, lines, ins.dst)} to double")
+                            store(ins.dst, _Value(name, "double"), lines)
+                    elif ins.op in {"bool", "to_bool"}:
+                        arg = call_args[0] if call_args else _Value("0", "i32")
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            if arg.ty == "i8*":
+                                parsed = fresh(f"{ins.dst}_parsed")
+                                lines.append(f"  {parsed} = call i32 @rt_to_i32_str(i8* {arg.text})")
+                                lines.append(f"  {name} = icmp ne i32 {parsed}, 0")
+                            elif arg.ty == "double":
+                                lines.append(f"  {name} = fcmp one double {arg.text}, 0.0")
+                            else:
+                                lines.append(f"  {name} = icmp ne i32 {as_i32(arg, lines, ins.dst)}, 0")
+                            store(ins.dst, _Value(name, "i1"), lines)
+                    elif ins.op in {"abs", "min", "max"}:
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            if ins.op == "abs":
+                                arg_value = call_args[0] if call_args else _Value("0", "i32")
+                                neg = fresh(f"{ins.dst}_neg")
+                                cond = fresh(f"{ins.dst}_negcond")
+                                if arg_value.ty == "double":
+                                    lines.append(f"  {neg} = fsub double 0.0, {arg_value.text}")
+                                    lines.append(f"  {cond} = fcmp olt double {arg_value.text}, 0.0")
+                                    lines.append(f"  {name} = select i1 {cond}, double {neg}, double {arg_value.text}")
+                                    store(ins.dst, _Value(name, "double"), lines)
+                                    arg_stack.clear()
+                                    i += 1
+                                    continue
+                                arg = as_i32(arg_value, lines, ins.dst)
+                                lines.append(f"  {neg} = sub i32 0, {arg}")
+                                lines.append(f"  {cond} = icmp slt i32 {arg}, 0")
+                                lines.append(f"  {name} = select i1 {cond}, i32 {neg}, i32 {arg}")
+                            elif call_args and call_args[0].ty == "i8*":
+                                a0 = call_args[0]
+                                a1 = call_args[1] if len(call_args) > 1 else add_string("")
+                                target = "rt_min_str" if ins.op == "min" else "rt_max_str"
+                                lines.append(f"  {name} = call i8* @{target}(i8* {a0.text}, i8* {a1.text})")
+                                store(ins.dst, _Value(name, "i8*"), lines)
+                                arg_stack.clear()
+                                i += 1
+                                continue
+                            elif call_args and call_args[0].ty == "double":
+                                a0 = call_args[0].text
+                                a1 = call_args[1].text if len(call_args) > 1 else "0.0"
+                                cond = fresh(f"{ins.dst}_cmp")
+                                cmp = "olt" if ins.op == "min" else "ogt"
+                                lines.append(f"  {cond} = fcmp {cmp} double {a0}, {a1}")
+                                lines.append(f"  {name} = select i1 {cond}, double {a0}, double {a1}")
+                                store(ins.dst, _Value(name, "double"), lines)
+                                arg_stack.clear()
+                                i += 1
+                                continue
+                            else:
+                                a0 = as_i32(call_args[0], lines, ins.dst + "_a") if call_args else "0"
+                                a1 = as_i32(call_args[1], lines, ins.dst + "_b") if len(call_args) > 1 else "0"
+                                cond = fresh(f"{ins.dst}_cmp")
+                                cmp = "slt" if ins.op == "min" else "sgt"
+                                lines.append(f"  {cond} = icmp {cmp} i32 {a0}, {a1}")
+                                lines.append(f"  {name} = select i1 {cond}, i32 {a0}, i32 {a1}")
+                            store(ins.dst, _Value(name, "i32"), lines)
+                    elif ins.op in {"rand", "time", "clock"}:
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            target = {"rand": "rt_rand", "time": "rt_time", "clock": "rt_clock"}[ins.op]
+                            lines.append(f"  {name} = call i32 @{target}()")
+                            store(ins.dst, _Value(name, "i32"), lines)
+                    elif ins.op == "srand":
+                        seed = as_i32(call_args[0], lines, ins.dst or "srand") if call_args else "0"
+                        lines.append(f"  call void @rt_srand(i32 {seed})")
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            lines.append(f"  {name} = add i32 0, 0")
+                            store(ins.dst, _Value(name, "i32"), lines)
+                    elif ins.op == "rand_range":
+                        lo = as_i32(call_args[0], lines, ins.dst or "rand_range") if call_args else "0"
+                        hi = as_i32(call_args[1], lines, ins.dst or "rand_range") if len(call_args) > 1 else "0"
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            lines.append(f"  {name} = call i32 @rt_rand_range(i32 {lo}, i32 {hi})")
                             store(ins.dst, _Value(name, "i32"), lines)
                     else:
                         args = ", ".join(f"i32 {as_i32(arg, lines, ins.dst or ins.op)}" for arg in call_args)

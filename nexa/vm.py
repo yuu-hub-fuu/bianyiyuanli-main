@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import random
+import time
 from dataclasses import dataclass
 
 from nexa.ir.hir import HIRKind, HIRModule
@@ -43,10 +45,77 @@ class HIRVM:
             return int(input())
         if name == "read_f64":
             return float(input())
+        if name == "read_str":
+            return input()
         if name == "len":
             return len(args[0])
         if name == "panic":
             raise RuntimeError(str(args[0]))
+        if name in {"str", "to_str"}:
+            v = args[0]
+            if isinstance(v, bool):
+                return "true" if v else "false"
+            return str(v)
+        if name in {"int", "to_i32"}:
+            return int(float(args[0])) if isinstance(args[0], str) else int(args[0])
+        if name in {"float", "to_f64"}:
+            return float(args[0])
+        if name in {"bool", "to_bool"}:
+            v = args[0]
+            if isinstance(v, str):
+                return 0 if v == "" or v.lower() in {"0", "false"} else 1
+            return 1 if bool(v) else 0
+        if name == "cat":
+            return str(args[0]) + str(args[1])
+        if name == "strlen":
+            return len(str(args[0]))
+        if name == "substr":
+            s = str(args[0]); start = max(0, int(args[1])); n = max(0, int(args[2]))
+            return s[start:start + n]
+        if name == "find":
+            return str(args[0]).find(str(args[1]))
+        if name == "contains":
+            return 1 if str(args[1]) in str(args[0]) else 0
+        if name == "starts_with":
+            return 1 if str(args[0]).startswith(str(args[1])) else 0
+        if name == "ends_with":
+            return 1 if str(args[0]).endswith(str(args[1])) else 0
+        if name == "replace":
+            return str(args[0]).replace(str(args[1]), str(args[2]))
+        if name == "trim":
+            return str(args[0]).strip()
+        if name == "lower":
+            return str(args[0]).lower()
+        if name == "upper":
+            return str(args[0]).upper()
+        if name == "ord":
+            s = str(args[0])
+            return ord(s[0]) if s else 0
+        if name == "chr":
+            return chr(int(args[0]))
+        if name == "parse_i32":
+            return int(float(str(args[0]).strip()))
+        if name == "parse_f64":
+            return float(str(args[0]).strip())
+        if name == "rand":
+            return random.randint(0, 2_147_483_647)
+        if name == "srand":
+            random.seed(int(args[0])); return 0
+        if name == "rand_range":
+            lo, hi = int(args[0]), int(args[1])
+            if hi < lo:
+                lo, hi = hi, lo
+            return random.randint(lo, hi)
+        if name == "time":
+            return int(time.time())
+        if name == "clock":
+            return int(time.process_time() * 1000)
+        if name == "abs":
+            return abs(args[0])
+        if name == "min":
+            return args[0] if args[0] <= args[1] else args[1]
+        if name == "max":
+            return args[0] if args[0] >= args[1] else args[1]
         if name == "chan":
             return rt_core.rt_chan_new(int(args[0]))
         if name == "send":
@@ -142,17 +211,19 @@ class HIRVM:
             elif op == HIRKind.BIN and ins.dst and len(ins.args) == 2:
                 a, b = val(ins.args[0]), val(ins.args[1])
                 sym = ins.op or "+"
-                if sym == "+": env[ins.dst] = num(a) + num(b)
+                if sym == "+" and isinstance(a, str) and isinstance(b, str): env[ins.dst] = a + b
+                elif sym == "-" and isinstance(a, str) and isinstance(b, str): env[ins.dst] = a.replace(b, "")
+                elif sym == "+": env[ins.dst] = num(a) + num(b)
                 elif sym == "-": env[ins.dst] = num(a) - num(b)
                 elif sym == "*": env[ins.dst] = num(a) * num(b)
                 elif sym == "/": env[ins.dst] = (num(a) / num(b)) if isinstance(num(a), float) or isinstance(num(b), float) else int(a) // int(b)
                 elif sym == "%": env[ins.dst] = int(a) % int(b)
                 elif sym == "==": env[ins.dst] = int(a == b)
                 elif sym == "!=": env[ins.dst] = int(a != b)
-                elif sym == "<": env[ins.dst] = int(num(a) < num(b))
-                elif sym == "<=": env[ins.dst] = int(num(a) <= num(b))
-                elif sym == ">": env[ins.dst] = int(num(a) > num(b))
-                elif sym == ">=": env[ins.dst] = int(num(a) >= num(b))
+                elif sym == "<": env[ins.dst] = int(a < b) if isinstance(a, str) and isinstance(b, str) else int(num(a) < num(b))
+                elif sym == "<=": env[ins.dst] = int(a <= b) if isinstance(a, str) and isinstance(b, str) else int(num(a) <= num(b))
+                elif sym == ">": env[ins.dst] = int(a > b) if isinstance(a, str) and isinstance(b, str) else int(num(a) > num(b))
+                elif sym == ">=": env[ins.dst] = int(a >= b) if isinstance(a, str) and isinstance(b, str) else int(num(a) >= num(b))
                 elif sym == "&&": env[ins.dst] = int(bool(a) and bool(b))
                 elif sym == "||": env[ins.dst] = int(bool(a) or bool(b))
             elif op == HIRKind.ARG and ins.args:

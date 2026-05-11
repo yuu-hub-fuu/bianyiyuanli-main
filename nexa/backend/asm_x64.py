@@ -41,7 +41,28 @@ _RUNTIME_BUILTINS = {
     "panic": "nx_panic",
     "read_i32": "nx_read_i32",
     "read_f64": "nx_read_f64",
+    "read_str": "nx_read_str",
     "len": "nx_array_len",
+    "cat": "nx_str_cat",
+    "strlen": "nx_str_len",
+    "substr": "nx_substr",
+    "find": "nx_find",
+    "contains": "nx_contains",
+    "starts_with": "nx_starts_with",
+    "ends_with": "nx_ends_with",
+    "replace": "nx_replace",
+    "trim": "nx_trim",
+    "lower": "nx_lower",
+    "upper": "nx_upper",
+    "ord": "nx_ord",
+    "chr": "nx_chr",
+    "parse_i32": "nx_parse_i32",
+    "parse_f64": "nx_parse_f64",
+    "rand": "nx_rand",
+    "srand": "nx_srand",
+    "rand_range": "nx_rand_range",
+    "time": "nx_time",
+    "clock": "nx_clock",
     "chan": "nx_chan_new",
     "send": "nx_chan_send",
     "recv": "nx_chan_recv",
@@ -55,7 +76,28 @@ _RUNTIME_SIGS: dict[str, tuple[list[str], str]] = {
     "panic": (["str"], "void"),
     "read_i32": ([], "i64"),
     "read_f64": ([], "f64"),
+    "read_str": ([], "str"),
     "len": (["i64"], "i64"),
+    "cat": (["str", "str"], "str"),
+    "strlen": (["str"], "i64"),
+    "substr": (["str", "i64", "i64"], "str"),
+    "find": (["str", "str"], "i64"),
+    "contains": (["str", "str"], "i64"),
+    "starts_with": (["str", "str"], "i64"),
+    "ends_with": (["str", "str"], "i64"),
+    "replace": (["str", "str", "str"], "str"),
+    "trim": (["str"], "str"),
+    "lower": (["str"], "str"),
+    "upper": (["str"], "str"),
+    "ord": (["str"], "i64"),
+    "chr": (["i64"], "str"),
+    "parse_i32": (["str"], "i64"),
+    "parse_f64": (["str"], "f64"),
+    "rand": ([], "i64"),
+    "srand": (["i64"], "void"),
+    "rand_range": (["i64", "i64"], "i64"),
+    "time": ([], "i64"),
+    "clock": ([], "i64"),
     "chan": (["i64"], "i64"),
     "send": (["i64", "i64"], "void"),
     "recv": (["i64"], "i64"),
@@ -411,6 +453,12 @@ def _emit_bin(ctx: _FunctionContext, ins: MIRInstr) -> None:
         return
     op = ins.op or "+"
     a, b = ins.args
+    if ins.ty == "str" and op in {"+", "-"}:
+        _emit_load(ctx, "rcx", a)
+        _emit_load(ctx, "rdx", b)
+        ctx.body.append(f"    call {'nx_str_cat' if op == '+' else 'nx_str_remove'}")
+        ctx.body.append(f"    mov {ctx.loc(ins.dst)}, rax")
+        return
     # Float arithmetic: result type is f64.
     if _is_float(ins.ty) and op in {"+", "-", "*", "/"}:
         _emit_bin_f64(ctx, ins)
@@ -561,6 +609,49 @@ def _callee_signature(ctx: _FunctionContext, callee: str, fallback_args: list[st
     return [ctx.type_of(a) for a in fallback_args], "i64"
 
 
+def _runtime_dispatch(ctx: _FunctionContext, callee: str, args: list[str], ret_hint: str | None) -> tuple[str, list[str], str] | None:
+    first_ty = ctx.type_of(args[0]) if args else "i64"
+    result_ty = ret_hint or "i64"
+    if callee == "len" and first_ty == "str":
+        return "nx_str_len", ["str"], "i64"
+    if callee in {"str", "to_str"}:
+        if first_ty == "f64":
+            return "nx_to_str_f64", ["f64"], "str"
+        if first_ty == "str":
+            return "nx_str_clone", ["str"], "str"
+        return "nx_to_str_i64", ["i64"], "str"
+    if callee in {"int", "to_i32"}:
+        if first_ty == "f64":
+            return "nx_to_i32_f64", ["f64"], "i64"
+        if first_ty == "str":
+            return "nx_to_i32_str", ["str"], "i64"
+        return "nx_to_i32_i64", ["i64"], "i64"
+    if callee in {"float", "to_f64"}:
+        if first_ty == "f64":
+            return "nx_to_f64_f64", ["f64"], "f64"
+        if first_ty == "str":
+            return "nx_to_f64_str", ["str"], "f64"
+        return "nx_to_f64_i64", ["i64"], "f64"
+    if callee in {"bool", "to_bool"}:
+        if first_ty == "f64":
+            return "nx_to_bool_f64", ["f64"], "i64"
+        if first_ty == "str":
+            return "nx_to_bool_str", ["str"], "i64"
+        return "nx_to_bool_i64", ["i64"], "i64"
+    if callee == "abs":
+        if first_ty == "f64" or result_ty == "f64":
+            return "nx_abs_f64", ["f64"], "f64"
+        return "nx_abs_i64", ["i64"], "i64"
+    if callee in {"min", "max"}:
+        prefix = "nx_min" if callee == "min" else "nx_max"
+        if result_ty == "str" or first_ty == "str":
+            return f"{prefix}_str", ["str", "str"], "str"
+        if result_ty == "f64" or first_ty == "f64":
+            return f"{prefix}_f64", ["f64", "f64"], "f64"
+        return f"{prefix}_i64", ["i64", "i64"], "i64"
+    return None
+
+
 def _emit_call(ctx: _FunctionContext, ins: MIRInstr) -> None:
     callee = ins.op or ""
     if callee in {"recv", "send", "select_recv", "chan"} and ins.args:
@@ -573,6 +664,8 @@ def _emit_call(ctx: _FunctionContext, ins: MIRInstr) -> None:
         # Seed param types from the actual arg type so xmm vs gpr is right.
         param_types = [ctx.type_of(a) for a in args]
         ret_ty = "void"
+    elif dispatched := _runtime_dispatch(ctx, callee, args, ins.ty):
+        target, param_types, ret_ty = dispatched
     else:
         target = _resolve_callee(callee)
         param_types, ret_ty = _callee_signature(ctx, callee, args)

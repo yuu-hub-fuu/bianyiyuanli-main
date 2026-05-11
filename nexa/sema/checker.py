@@ -44,6 +44,27 @@ class Checker:
             "panic": FuncSig([STR], VOID),
             "read_i32": FuncSig([], I32),
             "read_f64": FuncSig([], F64),
+            "read_str": FuncSig([], STR),
+            "cat": FuncSig([STR, STR], STR),
+            "strlen": FuncSig([STR], I32),
+            "substr": FuncSig([STR, I32, I32], STR),
+            "find": FuncSig([STR, STR], I32),
+            "contains": FuncSig([STR, STR], BOOL),
+            "starts_with": FuncSig([STR, STR], BOOL),
+            "ends_with": FuncSig([STR, STR], BOOL),
+            "replace": FuncSig([STR, STR, STR], STR),
+            "trim": FuncSig([STR], STR),
+            "lower": FuncSig([STR], STR),
+            "upper": FuncSig([STR], STR),
+            "ord": FuncSig([STR], I32),
+            "chr": FuncSig([I32], STR),
+            "parse_i32": FuncSig([STR], I32),
+            "parse_f64": FuncSig([STR], F64),
+            "rand": FuncSig([], I32),
+            "srand": FuncSig([I32], VOID),
+            "rand_range": FuncSig([I32, I32], I32),
+            "time": FuncSig([], I32),
+            "clock": FuncSig([], I32),
             "chan": FuncSig([I32], channel(I32)),
             "send": FuncSig([channel(I32), I32], VOID),
             "recv": FuncSig([channel(I32)], I32),
@@ -295,6 +316,12 @@ class Checker:
     def _check_binary(self, expr: ast.BinaryExpr, owner_fn: ast.Function) -> Type:
         lt = self._check_expr(expr.lhs, owner_fn)
         rt = self._check_expr(expr.rhs, owner_fn)
+        if expr.op == "+" and lt == STR and rt == STR:
+            expr.inferred_type = str(STR)
+            return STR
+        if expr.op == "-" and lt == STR and rt == STR:
+            expr.inferred_type = str(STR)
+            return STR
         if expr.op in {"+", "-", "*", "/", "%"}:
             if lt == rt and lt in {I32, F64}:
                 if expr.op == "%" and lt != I32:
@@ -329,10 +356,60 @@ class Checker:
             if len(expr.args) != 1:
                 self.diag.error(expr.span, "len 需要 1 个参数")
             arg_types = [self._check_expr(arg, owner_fn) for arg in expr.args]
+            if len(arg_types) == 1 and arg_types[0] == STR:
+                expr.inferred_type = str(I32)
+                return I32
             if len(arg_types) == 1 and arg_types[0].name != "Array":
                 self.diag.error(expr.args[0].span, f"len 参数必须是 Array[T]，实际 {arg_types[0]}")
             expr.inferred_type = str(I32)
             return I32
+        if callee in {"str", "to_str"}:
+            if len(expr.args) != 1:
+                self.diag.error(expr.span, f"{callee} expects 1 argument")
+            for arg in expr.args:
+                self._check_expr(arg, owner_fn)
+            expr.inferred_type = str(STR)
+            return STR
+        if callee in {"int", "to_i32"}:
+            if len(expr.args) != 1:
+                self.diag.error(expr.span, f"{callee} expects 1 argument")
+            for arg in expr.args:
+                self._check_expr(arg, owner_fn)
+            expr.inferred_type = str(I32)
+            return I32
+        if callee in {"float", "to_f64"}:
+            if len(expr.args) != 1:
+                self.diag.error(expr.span, f"{callee} expects 1 argument")
+            for arg in expr.args:
+                self._check_expr(arg, owner_fn)
+            expr.inferred_type = str(F64)
+            return F64
+        if callee in {"bool", "to_bool"}:
+            if len(expr.args) != 1:
+                self.diag.error(expr.span, f"{callee} expects 1 argument")
+            for arg in expr.args:
+                self._check_expr(arg, owner_fn)
+            expr.inferred_type = str(BOOL)
+            return BOOL
+        if callee == "abs":
+            if len(expr.args) != 1:
+                self.diag.error(expr.span, "abs expects 1 argument")
+            arg_types = [self._check_expr(arg, owner_fn) for arg in expr.args]
+            ret = arg_types[0] if arg_types and arg_types[0] in {I32, F64} else I32
+            if arg_types and arg_types[0] not in {I32, F64}:
+                self.diag.error(expr.args[0].span, f"abs expects i32 or f64, got {arg_types[0]}")
+            expr.inferred_type = str(ret)
+            return ret
+        if callee in {"min", "max"}:
+            if len(expr.args) != 2:
+                self.diag.error(expr.span, f"{callee} expects 2 arguments")
+            arg_types = [self._check_expr(arg, owner_fn) for arg in expr.args]
+            ret = arg_types[0] if arg_types else I32
+            if len(arg_types) == 2 and (arg_types[0] != arg_types[1] or arg_types[0] not in {I32, F64, STR}):
+                self.diag.error(expr.span, f"{callee} expects two values of the same i32, f64, or str type")
+                ret = I32
+            expr.inferred_type = str(ret)
+            return ret
         sig = self.functions.get(callee)
         if sig is None:
             self.diag.error(expr.span, f"未定义函数: {callee}")

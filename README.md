@@ -164,13 +164,36 @@ print(value)           -> void     # supports i32, f64, bool, and str in current
 panic(str)             -> void
 read_i32()             -> i32
 read_f64()             -> f64
-len(Array[T])          -> i32
+read_str()             -> str
+len(Array[T] | str)    -> i32
+cat(str, str)          -> str      # same behavior as str + str
+str - str              -> str      # remove all occurrences of the right-hand substring
+strlen(str)            -> i32
+substr(str, i32, i32)  -> str
+find(str, str)         -> i32
+contains(str, str)     -> bool
+starts_with(str, str)  -> bool
+ends_with(str, str)    -> bool
+replace(str,str,str)   -> str
+trim/lower/upper(str)  -> str
+ord(str)               -> i32
+chr(i32)               -> str
+str/to_str(value)      -> str
+int/to_i32(value)      -> i32
+float/to_f64(value)    -> f64
+bool/to_bool(value)    -> bool
+abs/min/max(...)       -> numeric/string helpers
+rand()                 -> i32
+srand(i32)             -> void
+rand_range(i32, i32)   -> i32
+time()                 -> i32
+clock()                -> i32
 chan(i32)              -> Chan[i32]
 send(Chan[i32], i32)   -> void
 recv(Chan[i32])        -> i32
 ```
 
-`read_i32` and `read_f64` are simple stdin helpers. They are intentionally smaller than C `scanf`: each call reads one value of the declared type.
+`read_i32`, `read_f64`, and `read_str` are simple stdin helpers. They are intentionally smaller than C `scanf`: each call reads one value of the declared type.
 
 ## Modes
 

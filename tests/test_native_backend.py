@@ -126,6 +126,27 @@ fn main() -> i32 {
     assert "nx_print_str" in res.build.asm_text
 
 
+def test_native_string_stdlib_and_conversions(tmp_path: Path):
+    src = """
+fn main() -> i32 {
+    let s: str = cat("he", "llo") + " native";
+    let t: str = replace(s, " native", "") - "l";
+    print(upper(substr(t, 0, 2)));
+    print(str(int("12")));
+    if contains(t, "he") && starts_with(t, "h") && ends_with(t, "o") {
+        return len(t) + find(t, "o") + abs(-3);
+    }
+    return 0;
+}
+"""
+    res = _compile_and_run(src, tmp_path, "stdlib")
+    out_lines = [ln.strip() for ln in res.exe_stdout.splitlines() if ln.strip()]
+    assert out_lines[:2] == ["HE", "12"]
+    assert res.exe_exit_code == 8
+    assert "nx_str_cat" in res.build.asm_text
+    assert "nx_str_remove" in res.build.asm_text
+
+
 def test_native_imported_function_call(tmp_path: Path):
     lib = tmp_path / "math.nx"
     lib.write_text("fn add(a: i32, b: i32) -> i32 { return a + b; }", encoding="utf-8")
