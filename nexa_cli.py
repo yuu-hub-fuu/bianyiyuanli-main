@@ -43,6 +43,7 @@ def main() -> int:
         build_dir=args.build_dir,
         source_stem=args.source.stem,
         run_exe=args.run_exe,
+        source_path=str(args.source),
     )
 
     print("== TIMELINE ==")

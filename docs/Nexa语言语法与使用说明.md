@@ -85,7 +85,7 @@ foo123
 当前关键字包括：
 
 ```text
-fn let return if else while struct macro spawn
+import fn let return if else while struct macro spawn
 select recv send default true false
 ```
 
@@ -218,6 +218,43 @@ let x: i32 = add(1, 2);
 ```
 
 当前只支持直接函数调用，即被调用对象应为函数名。
+
+### 4.1 文件导入
+
+Nexa 支持第一版文件导入语法：
+
+```nx
+import "math.nx";
+```
+
+导入路径相对于当前源文件所在目录解析。被导入文件中的函数会被加入本次编译，入口文件可以直接调用：
+
+```nx
+// math.nx
+fn add(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+```
+
+```nx
+// main.nx
+import "math.nx";
+
+fn main() -> i32 {
+    return add(1, 2);
+}
+```
+
+为了避免多文件链接时函数名冲突，编译器会在内部给导入函数增加模块名前缀。例如 `math.nx` 中的 `add` 会变成 Nexa 内部函数名 `math__add`，最终汇编符号为 `nx_math__add`。入口函数 `main` 保持为运行时入口。
+
+当前导入系统仍是第一版：
+
+```text
+支持 import "file.nx";
+导入函数直接暴露给入口文件调用
+入口文件中的同名函数优先
+暂不提供完整模块命名空间、包版本、依赖解析和循环导入处理
+```
 
 ## 5. 泛型函数
 
@@ -772,7 +809,7 @@ select/channel 教学运行时
 当前 Nexa 是课程设计语言，不是完整工业语言。主要限制包括：
 
 ```text
-当前没有模块/import 系统，不支持多文件联合编译
+当前 import 是第一版功能，暂不支持完整模块命名空间、包版本和依赖解析
 没有完整的堆对象生命周期管理，数组和结构体主要依赖简单运行时模型
 没有格式化 scanf 接口，只提供 read_i32() 和 read_f64()
 channel/select 是教学子集

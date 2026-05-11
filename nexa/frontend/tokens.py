@@ -18,6 +18,7 @@ class TokenKind(Enum):
     ELSE = auto()
     WHILE = auto()
     STRUCT = auto()
+    IMPORT = auto()
     MACRO = auto()
     SPAWN = auto()
     SELECT = auto()
@@ -62,6 +63,7 @@ KEYWORDS = {
     "else": TokenKind.ELSE,
     "while": TokenKind.WHILE,
     "struct": TokenKind.STRUCT,
+    "import": TokenKind.IMPORT,
     "macro": TokenKind.MACRO,
     "spawn": TokenKind.SPAWN,
     "select": TokenKind.SELECT,

@@ -197,6 +197,18 @@ def test_len_rejects_non_array_argument():
     assert any('len 参数必须是 Array' in d.message for d in res.diagnostics)
 
 
+def test_import_string_path_allows_cross_file_vm_call(tmp_path):
+    lib = tmp_path / "math.nx"
+    lib.write_text("fn add(a: i32, b: i32) -> i32 { return a + b; }", encoding="utf-8")
+    main = tmp_path / "main.nx"
+    src = 'import "math.nx"; fn main() -> i32 { return add(2, 5); }'
+    main.write_text(src, encoding="utf-8")
+    res = compile_source(src, mode='core', run=True, source_path=str(main))
+    assert all(d.level != 'error' for d in res.diagnostics)
+    assert res.run_value == 7
+    assert "math__add" in res.artifacts.asm_module
+
+
 def test_llvm_emits_if_control_flow():
     src = 'fn main() -> i32 { let a: i32 = 1; if a > 0 { a = 2; } return a; }'
     res = compile_source(src, mode='core')

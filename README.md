@@ -29,6 +29,7 @@ Nexa currently supports:
 - assignment
 - arithmetic, comparison, and logical expressions
 - functions and direct function calls
+- single-file relative imports with `import "file.nx";`
 - `if` / `else`
 - `while`
 - `return`
@@ -123,6 +124,36 @@ fn max[T: Ord](a: T, b: T) -> T {
     return b;
 }
 ```
+
+### Imports
+
+Nexa supports a first version of file imports:
+
+```nx
+import "math.nx";
+
+fn main() -> i32 {
+    return add(1, 2);
+}
+```
+
+The imported file can provide functions:
+
+```nx
+fn add(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+```
+
+Import paths are resolved relative to the source file that contains the import. Imported function symbols are internally mangled with the imported file stem, for example `math.nx` function `add` becomes `math__add` at the Nexa IR level and `nx_math__add` in assembly. The entry file keeps `main` as the runtime entry point.
+
+This first version is intentionally simple:
+
+- imports expose functions directly by name
+- local functions in the importing file take precedence
+- imported functions are renamed to avoid linker-symbol collisions
+- imported structs/macros can be parsed with the imported file, but cross-file package semantics are still minimal
+- cyclic imports and package directories are not production features yet
 
 ## Built-In Functions
 
@@ -482,7 +513,7 @@ exit=42
 Nexa is still a course-project language, not an industrial language. Current limits include:
 
 - no formatted `scanf` equivalent; only `read_i32()` and `read_f64()` are provided
-- no modules/import system
+- first-version imports only; no full module namespace, package registry, or dependency resolver
 - no heap lifetime management beyond the simple runtime model
 - no full concurrency semantics in the native backend
 - `spawn` is still mainly syntax/teaching surface
