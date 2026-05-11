@@ -228,14 +228,16 @@ def test_asm_backend_uses_kind_dispatch():
     assert 'startswith("bin.' not in txt
 
 
-def test_ide_main_missing_dependency_message(monkeypatch, capsys):
-    real_import = __import__
+def test_ide_main_uses_tkinter_studio(monkeypatch):
+    calls = []
 
-    def fake_import(name, *args, **kwargs):
-        if name == 'uvicorn':
-            raise ImportError('no uvicorn')
-        return real_import(name, *args, **kwargs)
+    class DummyStudio:
+        def __init__(self):
+            calls.append("init")
 
-    monkeypatch.setattr('builtins.__import__', fake_import)
+        def mainloop(self):
+            calls.append("mainloop")
+
+    monkeypatch.setattr(ide_app, "NexaStudio", DummyStudio)
     ide_app.main()
-    assert 'Missing IDE dependencies' in capsys.readouterr().out
+    assert calls == ["init", "mainloop"]

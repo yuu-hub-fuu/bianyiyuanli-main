@@ -1,59 +1,75 @@
 # Nexa Compiler Project
 
-## 快速开始
+Nexa is a compiler-principles course project. It implements a small teaching language and a complete local toolchain from source code to lexical tables, AST, semantic diagnostics, HIR/MIR, optimization, CFG, LLVM IR, real Win64 x86-64 assembly, native build, and visual inspection.
+
+## Quick Start
 
 ```bash
 python -m pip install pytest
 python nexa_cli.py example.nx --mode core --dump tables --run
 python nexa_cli.py example.nx --mode full --dump all --run --trace --report out/report.html
-pytest -q
+pytest -q tests -p no:cacheprovider --tb=short
 ```
 
-## 语言特性徽章
+## Language Features
 
-- Core ✅（变量/表达式/if/while/符号表/四元式）
-- Struct ✅
-- Macro ⚠️ AST-level macro expansion with depth limit + teaching gensym
-- Generic ⚠️ monomorph demo（调用点实例化）
-- Select ⚠️ lowering 为 `br.ready + recv + default` 的非阻塞子集（仅教学运行时路径）
-- LLVM ⚠️ 仅支持线性整数子集（不支持 `if/while/select/chan/str` 的 HIR 控制流）
-- x86-64 ⚠️ teaching text emitter（可读目标代码）
+- Core syntax: variables, assignment, arithmetic/logical expressions, functions, `if`, `while`, `return`, and blocks.
+- Types and data: `i32`, `f64`, `bool`, `str`, structs, arrays, indexing, and assignment.
+- Teaching extensions: macros, generic monomorphization demo, channels/select subset, diagnostics with fix suggestions, and report export.
+- Optimization: constant propagation, copy propagation, constant folding, algebraic simplification, dead-code elimination, unreachable-code elimination, common subexpression elimination, loop-invariant code motion, strength reduction, and small-function inlining.
 
-## 验收输出（CLI）
+## Compiler Pipeline
 
-`--dump tables` 或 `--dump all` 输出：
+The main pipeline is:
 
-- 关键字表
-- 界符表
-- 标识符表
-- 常量表
-- 符号表
-- 四元式表（HIR）
+```text
+source -> lexer -> parser -> macro expansion -> semantic check
+       -> HIR -> optimization -> MIR/CFG -> register allocation
+       -> LLVM IR / Win64 x86-64 assembly / native executable
+```
 
-## 模式
+Important output artifacts include:
 
-- `--mode core`：课程基础模式（稳定答辩路径）
-- `--mode full`：高分展示模式（宏/泛型/select/可视化）
+- keyword, delimiter, identifier, and constant tables
+- AST text/tree output
+- symbol table
+- raw and optimized HIR quadruples
+- CFG blocks and edges
+- LLVM IR
+- real Win64 x86-64 assembly
+- optional native `.exe` build output
 
-## 运行模式（VM）
+## CLI
 
-`--run` 会使用 `nexa.vm.HIRVM` 执行 HIR，保证课程演示“可运行闭环”。
+Useful commands:
 
-`--trace` 可打印 VM 指令级 trace；`--report out/report.html` 可生成课程化 HTML 报告（词法/符号/四元式/CFG/运行结果/诊断，若存在则嵌入 AST/CFG SVG）。
+```bash
+python nexa_cli.py example.nx --mode core --dump tables --run
+python nexa_cli.py example.nx --mode full --dump all --run --trace
+python nexa_cli.py example.nx --emit-llvm
+python nexa_cli.py example.nx --build --run-exe
+python nexa_cli.py example.nx --report out/report.html
+```
 
-## 图形界面
+## Desktop IDE
+
+The IDE entrypoint is a Python tkinter desktop GUI:
 
 ```bash
 python -m nexa.ide.app
 ```
 
-界面包含：源码区、HIR Table、Symbol Tree、Diagnostics Groups、Run Output、Trace Panel、CFG/ASM/Timeline。
+It is not a FastAPI/WebSocket browser IDE. The desktop IDE supports source editing, Tokens, AST, symbol table, HIR, CFG, ASM, LLVM, Timeline, Run, Trace, diagnostics, quick fixes, and HTML report export.
 
-## 可视化导出
+## Native Backend
 
-编译时会输出 DOT 文件：
+The x86-64 backend emits real Win64 assembly, assembles it with the MinGW64 toolchain, links it with the Nexa runtime, and can run the generated executable. It also includes local instruction-level optimizations such as `lea` arithmetic, shift-based multiplication by powers of two, `test` zero checks, `xor` zeroing, and redundant move elimination.
+
+## Graph And Report Export
+
+Compilation with an export directory writes:
 
 - `out/ast.dot`
 - `out/cfg_<fn>.dot`
 
-安装 `graphviz` Python 包后会自动生成对应 SVG 文件。
+If Graphviz is available, matching SVG files can be rendered. HTML reports include lexical tables, symbols, HIR quadruples, CFG, run output, diagnostics, and optional graph artifacts.
