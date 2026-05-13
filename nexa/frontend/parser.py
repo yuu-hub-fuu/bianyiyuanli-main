@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from . import ast
 from .diagnostics import DiagnosticBag
@@ -33,23 +33,35 @@ class Parser:
         while not self._at(TokenKind.EOF):
             if self._match(TokenKind.FN):
                 items.append(self._parse_fn())
+            elif self._match(TokenKind.PUB):
+                if self._match(TokenKind.FN):
+                    items.append(self._parse_fn(is_public=True))
+                else:
+                    self._error_here("pub 后只能声明 fn")
+                    self._sync_top()
             elif self._match(TokenKind.MACRO):
                 items.append(self._parse_macro())
             elif self._match(TokenKind.STRUCT):
                 items.append(self._parse_struct())
             elif self._match(TokenKind.CLASS):
                 items.append(self._parse_class())
+            elif self._match(TokenKind.IMPL):
+                items.append(self._parse_impl())
             elif self._match(TokenKind.IMPORT):
                 items.append(self._parse_import())
             else:
-                self._error_here("期望顶层定义 import/fn/macro/struct")
+                self._error_here("期望顶层定义 import/pub/fn/macro/struct/impl")
                 self._sync_top()
         return ast.Module(self._span_of(0), items)
 
     def _parse_import(self) -> ast.ImportDecl:
         path = self._expect(TokenKind.STRING, 'import 需要字符串路径，例如 import "math.nx";')
+        alias = None
+        if self._at(TokenKind.IDENT) and self._peek().lexeme == "as":
+            self._advance()
+            alias = self._expect(TokenKind.IDENT, "import as 后需要模块别名").lexeme
         self._expect(TokenKind.SEMI, "import 缺少分号", fix="在 import 后插入 ';'")
-        return ast.ImportDecl(path.span, path.lexeme)
+        return ast.ImportDecl(path.span, path.lexeme, alias)
 
     def _parse_struct(self) -> ast.StructDef:
         name = self._expect(TokenKind.IDENT, "期望结构体名")
@@ -90,7 +102,7 @@ class Parser:
                 methods.append(self._parse_special_method(name.lexeme, "destructor", name.lexeme, visibility, is_virtual, is_override))
                 continue
             if self._match(TokenKind.FN):
-                method = self._parse_fn(owner_class=name.lexeme, visibility=visibility)
+                method = self._parse_fn(is_public=visibility == "public", owner_class=name.lexeme, visibility=visibility)
                 method.is_virtual = is_virtual
                 method.is_override = is_override
                 method.name = f"{name.lexeme}__{method.name}"
@@ -144,8 +156,26 @@ class Parser:
             is_destructor=(kind == "destructor"),
         )
 
-    def _parse_fn(self, owner_class: str | None = None, visibility: str = "public") -> ast.Function:
-        name = self._expect(TokenKind.IDENT, "期望函数名")
+    def _parse_impl(self) -> ast.ImplBlock:
+        name = self._expect(TokenKind.IDENT, "impl 后需要类型名")
+        self._expect(TokenKind.LBRACE, "impl 缺少 {")
+        methods: list[ast.Function] = []
+        while not self._at(TokenKind.RBRACE) and not self._at(TokenKind.EOF):
+            is_public = False
+            if self._match(TokenKind.PUB):
+                is_public = True
+            if self._match(TokenKind.FN):
+                methods.append(self._parse_fn(is_public=is_public))
+            else:
+                self._error_here("impl 中只能声明 fn 或 pub fn")
+                self._sync_top()
+                if self._at(TokenKind.RBRACE):
+                    break
+        self._expect(TokenKind.RBRACE, "impl 缺少 }")
+        return ast.ImplBlock(name.span, name.lexeme, methods)
+
+    def _parse_fn(self, is_public: bool = False, owner_class: str | None = None, visibility: str = "public") -> ast.Function:
+        name = self._expect_name("期望函数名")
         generics: list[str] = []
         bounds: dict[str, list[str]] = {}
         if self._match(TokenKind.LBRACKET):
@@ -176,7 +206,19 @@ class Parser:
         if self._match(TokenKind.ARROW):
             ret = self._parse_type_ref()
         body = self._parse_block()
-        return ast.Function(name.span, name.lexeme, params, ret, body, generics, bounds, bool(generics), owner_class, visibility)
+        return ast.Function(
+            name.span,
+            name.lexeme,
+            params,
+            ret,
+            body,
+            generics,
+            bounds,
+            bool(generics),
+            is_public,
+            owner_class,
+            visibility,
+        )
 
     def _parse_macro(self) -> ast.Macro:
         name = self._expect(TokenKind.IDENT, "期望宏名")
@@ -354,7 +396,7 @@ class Parser:
                 continue
             if self._at(TokenKind.DOT):
                 dot = self._advance()
-                field = self._expect(TokenKind.IDENT, "期望字段名")
+                field = self._expect_name("期望字段名")
                 lhs = ast.FieldAccess(dot.span, None, lhs, field.lexeme)
                 continue
             if self._at(TokenKind.LBRACKET):
@@ -413,6 +455,12 @@ class Parser:
         self.diag.error(self._peek().span, msg, fixits=[fix] if fix else None)
         return Token(kind, "", self._peek().span)
 
+    def _expect_name(self, msg: str) -> Token:
+        if self._peek().kind in {TokenKind.IDENT, TokenKind.NEW}:
+            return self._advance()
+        self.diag.error(self._peek().span, msg)
+        return Token(TokenKind.IDENT, "", self._peek().span)
+
     def _error_here(self, msg: str) -> None:
         self.diag.error(self._peek().span, msg)
 
@@ -424,10 +472,12 @@ class Parser:
             self._advance()
 
     def _sync_top(self) -> None:
-        while self._peek().kind not in {TokenKind.IMPORT, TokenKind.FN, TokenKind.MACRO, TokenKind.STRUCT, TokenKind.CLASS, TokenKind.EOF}:
+        while self._peek().kind not in {TokenKind.IMPORT, TokenKind.PUB, TokenKind.FN, TokenKind.MACRO, TokenKind.STRUCT, TokenKind.CLASS, TokenKind.IMPL, TokenKind.EOF}:
             self._advance()
 
     def _span_of(self, idx: int) -> Span:
         if not self.tokens:
             return Span(0, 0, 1, 1)
         return self.tokens[min(idx, len(self.tokens) - 1)].span
+
+

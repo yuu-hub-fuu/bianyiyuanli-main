@@ -74,7 +74,8 @@ def _ast_dump(node: object, indent: int = 0) -> list[str]:
             out.extend(_ast_dump(i, indent + 1))
         return out
     if isinstance(node, ast.Function):
-        out = [f"{pad}Function {node.name}"]
+        prefix = "pub " if node.is_public else ""
+        out = [f"{pad}{prefix}Function {node.name}"]
         for p in node.params:
             out.append(f"{pad}  Param {p.name}: {p.type_ref.name}")
         out.extend(_ast_dump(node.body, indent + 1))
@@ -92,8 +93,14 @@ def _ast_dump(node: object, indent: int = 0) -> list[str]:
         for m in node.methods:
             out.extend(_ast_dump(m, indent + 1))
         return out
+    if isinstance(node, ast.ImplBlock):
+        out = [f"{pad}Impl {node.type_name}"]
+        for method in node.methods:
+            out.extend(_ast_dump(method, indent + 1))
+        return out
     if isinstance(node, ast.ImportDecl):
-        return [f'{pad}Import "{node.path}"']
+        alias = f" as {node.alias}" if node.alias else ""
+        return [f'{pad}Import "{node.path}"{alias}']
     if isinstance(node, ast.Block):
         out = [f"{pad}Block"]
         for s in node.stmts:
@@ -276,6 +283,85 @@ def _collect_local_function_names(module: ast.Module) -> set[str]:
     return {item.name for item in module.items if isinstance(item, ast.Function)}
 
 
+def _public_function_names(module: ast.Module) -> set[str]:
+    return {item.name for item in module.items if isinstance(item, ast.Function) and item.is_public}
+
+
+def _import_alias(import_decl: ast.ImportDecl, parent: Path) -> str:
+    if import_decl.alias:
+        return import_decl.alias
+    return _module_name_for_path((parent / import_decl.path).resolve())
+
+
+def _rewrite_qualified_call_names_in_expr(expr: ast.Expr | None, modules: dict[str, dict[str, str]]) -> None:
+    if expr is None:
+        return
+    if isinstance(expr, ast.CallExpr):
+        if (
+            isinstance(expr.callee, ast.FieldAccess)
+            and isinstance(expr.callee.base, ast.NameExpr)
+            and expr.callee.base.name in modules
+            and expr.callee.field in modules[expr.callee.base.name]
+        ):
+            expr.callee = ast.NameExpr(expr.callee.span, None, modules[expr.callee.base.name][expr.callee.field])
+        else:
+            _rewrite_qualified_call_names_in_expr(expr.callee, modules)
+        for arg in expr.args:
+            _rewrite_qualified_call_names_in_expr(arg, modules)
+    elif isinstance(expr, ast.UnaryExpr):
+        _rewrite_qualified_call_names_in_expr(expr.rhs, modules)
+    elif isinstance(expr, ast.BinaryExpr):
+        _rewrite_qualified_call_names_in_expr(expr.lhs, modules)
+        _rewrite_qualified_call_names_in_expr(expr.rhs, modules)
+    elif isinstance(expr, ast.StructLit):
+        for field in expr.fields:
+            _rewrite_qualified_call_names_in_expr(field.value, modules)
+    elif isinstance(expr, ast.FieldAccess):
+        _rewrite_qualified_call_names_in_expr(expr.base, modules)
+    elif isinstance(expr, ast.ArrayLit):
+        for item in expr.items:
+            _rewrite_qualified_call_names_in_expr(item, modules)
+    elif isinstance(expr, ast.IndexExpr):
+        _rewrite_qualified_call_names_in_expr(expr.base, modules)
+        _rewrite_qualified_call_names_in_expr(expr.index, modules)
+    elif isinstance(expr, ast.BlockExpr) and expr.block:
+        _rewrite_qualified_call_names_in_block(expr.block, modules)
+    elif isinstance(expr, ast.SelectExpr):
+        for case in expr.cases:
+            _rewrite_qualified_call_names_in_expr(case.channel, modules)
+            _rewrite_qualified_call_names_in_expr(case.value, modules)
+            _rewrite_qualified_call_names_in_block(case.body, modules)
+
+
+def _rewrite_qualified_call_names_in_stmt(stmt: ast.Stmt, modules: dict[str, dict[str, str]]) -> None:
+    if isinstance(stmt, ast.LetStmt):
+        _rewrite_qualified_call_names_in_expr(stmt.value, modules)
+    elif isinstance(stmt, ast.AssignStmt):
+        _rewrite_qualified_call_names_in_expr(stmt.target, modules)
+        _rewrite_qualified_call_names_in_expr(stmt.value, modules)
+    elif isinstance(stmt, ast.ExprStmt):
+        _rewrite_qualified_call_names_in_expr(stmt.expr, modules)
+    elif isinstance(stmt, ast.ReturnStmt):
+        _rewrite_qualified_call_names_in_expr(stmt.value, modules)
+    elif isinstance(stmt, ast.IfStmt):
+        _rewrite_qualified_call_names_in_expr(stmt.cond, modules)
+        _rewrite_qualified_call_names_in_block(stmt.then_block, modules)
+        if stmt.else_block:
+            _rewrite_qualified_call_names_in_block(stmt.else_block, modules)
+    elif isinstance(stmt, ast.WhileStmt):
+        _rewrite_qualified_call_names_in_expr(stmt.cond, modules)
+        _rewrite_qualified_call_names_in_block(stmt.body, modules)
+    elif isinstance(stmt, ast.SpawnStmt):
+        _rewrite_qualified_call_names_in_expr(stmt.expr, modules)
+    elif isinstance(stmt, ast.Block):
+        _rewrite_qualified_call_names_in_block(stmt, modules)
+
+
+def _rewrite_qualified_call_names_in_block(block: ast.Block, modules: dict[str, dict[str, str]]) -> None:
+    for stmt in block.stmts:
+        _rewrite_qualified_call_names_in_stmt(stmt, modules)
+
+
 def _rewrite_call_names_in_expr(expr: ast.Expr | None, rename: dict[str, str]) -> None:
     if expr is None:
         return
@@ -339,6 +425,21 @@ def _rewrite_call_names_in_block(block: ast.Block, rename: dict[str, str]) -> No
         _rewrite_call_names_in_stmt(stmt, rename)
 
 
+def _flatten_impls(module: ast.Module) -> ast.Module:
+    items: list[object] = []
+    for item in module.items:
+        if isinstance(item, ast.ImplBlock):
+            rename = {method.name: f"{item.type_name}__{method.name}" for method in item.methods}
+            for method in item.methods:
+                method.name = rename[method.name]
+                _rewrite_call_names_in_block(method.body, rename)
+                items.append(method)
+        else:
+            items.append(item)
+    module.items = items
+    return module
+
+
 def _rename_module_functions(module: ast.Module, module_name: str, keep_main: bool) -> dict[str, str]:
     rename: dict[str, str] = {}
     for item in module.items:
@@ -361,47 +462,68 @@ def _resolve_imports(module: ast.Module, base_path: Path | None, diag: Diagnosti
     imported_items: list[object] = []
     imported_renames: dict[str, str] = {}
     seen: set[Path] = set()
+    loaded_symbols: dict[Path, dict[str, str]] = {}
 
-    def load_import(path_text: str, parent: Path) -> None:
+    def load_import(path_text: str, parent: Path) -> dict[str, str]:
         imp_path = (parent / path_text).resolve()
-        if imp_path in seen:
-            return
+        if imp_path in loaded_symbols:
+            return loaded_symbols[imp_path]
         seen.add(imp_path)
         if not imp_path.exists():
             diag.error(Span(0, 0, 1, 1), f"import 文件不存在: {imp_path}")
-            return
+            loaded_symbols[imp_path] = {}
+            return {}
         try:
             imp_source = imp_path.read_text(encoding="utf-8-sig")
         except OSError as exc:
             diag.error(Span(0, 0, 1, 1), f"import 文件读取失败: {imp_path}: {exc}")
-            return
+            loaded_symbols[imp_path] = {}
+            return {}
         imp_module = _parse_source_to_module(imp_source, diag)
+        imp_module = _flatten_impls(imp_module)
+        nested_modules: dict[str, dict[str, str]] = {}
+        nested_visible: dict[str, str] = {}
         for item in list(imp_module.items):
             if isinstance(item, ast.ImportDecl):
-                load_import(item.path, imp_path.parent)
+                nested_symbols = load_import(item.path, imp_path.parent)
+                nested_modules[_import_alias(item, imp_path.parent)] = nested_symbols
+                for original, mangled in nested_symbols.items():
+                    nested_visible.setdefault(original, mangled)
+        local_names = _collect_local_function_names(imp_module)
+        for item in imp_module.items:
+            if isinstance(item, ast.Function):
+                _rewrite_qualified_call_names_in_block(item.body, nested_modules)
+                _rewrite_call_names_in_block(item.body, {k: v for k, v in nested_visible.items() if k not in local_names})
+        public_names = _public_function_names(imp_module)
         local_rename = _rename_module_functions(imp_module, _module_name_for_path(imp_path), keep_main=False)
+        public_rename = {name: mangled for name, mangled in local_rename.items() if name in public_names}
         for original, mangled in local_rename.items():
             if original in imported_renames and imported_renames[original] != mangled:
                 diag.error(Span(0, 0, 1, 1), f"import 函数名冲突: {original}")
             else:
-                imported_renames[original] = mangled
+                if original in public_rename:
+                    imported_renames[original] = mangled
         imported_items.extend(item for item in imp_module.items if not isinstance(item, ast.ImportDecl))
+        loaded_symbols[imp_path] = public_rename
+        return public_rename
 
     imports = [item for item in module.items if isinstance(item, ast.ImportDecl)]
     if not imports:
         return module
+    import_modules: dict[str, dict[str, str]] = {}
     if imports:
         if base_path is None:
             diag.error(imports[0].span, "当前编译入口没有文件路径，无法解析 import")
         else:
             for item in imports:
-                load_import(item.path, base_path.parent)
+                import_modules[_import_alias(item, base_path.parent)] = load_import(item.path, base_path.parent)
 
     entry_name = _module_name_for_path(base_path) if base_path else "main"
     local_names = _collect_local_function_names(module)
     visible_imports = {k: v for k, v in imported_renames.items() if k not in local_names}
     for item in module.items:
         if isinstance(item, ast.Function):
+            _rewrite_qualified_call_names_in_block(item.body, import_modules)
             _rewrite_call_names_in_block(item.body, visible_imports)
     _rename_module_functions(module, entry_name, keep_main=True)
     own_items = [item for item in module.items if not isinstance(item, ast.ImportDecl)]
@@ -451,6 +573,7 @@ def compile_source(
 
     parser = Parser(tokens, diag)
     module = parser.parse()
+    module = _flatten_impls(module)
     module = _resolve_imports(module, Path(source_path).resolve() if source_path else None, diag)
     artifacts.ast_text = "\n".join(_ast_dump(module))
     stage("Parser", "failed" if diag.has_errors() else "ok", f"items={len(module.items)}")

@@ -9,6 +9,7 @@
 ```text
 函数定义 fn
 结构体定义 struct
+方法实现块 impl
 宏定义 macro
 ```
 
@@ -85,7 +86,7 @@ foo123
 当前关键字包括：
 
 ```text
-import fn let return if else while struct macro spawn
+import pub fn let return if else while struct impl macro spawn
 select recv send default true false
 ```
 
@@ -185,6 +186,39 @@ p.x = p.x + 1;
 
 结构体构造时需要完整初始化所有字段，字段名必须存在，字段值类型必须与结构体声明一致。
 
+### 3.5 impl 方法
+
+可以使用 `impl` 为结构体绑定方法：
+
+```nx
+struct Point { x: i32, y: i32 }
+
+impl Point {
+    pub fn new(x: i32, y: i32) -> Point {
+        return Point { x: x, y: y };
+    }
+
+    pub fn sum(self: Point) -> i32 {
+        return self.x + self.y;
+    }
+}
+
+fn main() -> i32 {
+    let p: Point = Point.new(1, 2);
+    return p.sum();
+}
+```
+
+当前 `impl` 是第一版基础面向对象功能：
+
+```text
+方法写在 impl Type { ... } 中
+self 需要显式写成第一个参数，例如 self: Point
+Type.method(...) 会降低为 Type__method(...)
+value.method(...) 会降低为 Type__method(value, ...)
+暂不支持继承、虚函数、动态派发和隐式 self
+```
+
 ## 4. 函数定义
 
 函数定义格式：
@@ -231,7 +265,7 @@ import "math.nx";
 
 ```nx
 // math.nx
-fn add(a: i32, b: i32) -> i32 {
+pub fn add(a: i32, b: i32) -> i32 {
     return a + b;
 }
 ```
@@ -241,19 +275,32 @@ fn add(a: i32, b: i32) -> i32 {
 import "math.nx";
 
 fn main() -> i32 {
-    return add(1, 2);
+    return math.add(1, 2);
 }
 ```
 
-为了避免多文件链接时函数名冲突，编译器会在内部给导入函数增加模块名前缀。例如 `math.nx` 中的 `add` 会变成 Nexa 内部函数名 `math__add`，最终汇编符号为 `nx_math__add`。入口函数 `main` 保持为运行时入口。
+导入文件中只有 `pub fn` 会对外可见；普通 `fn` 只作为该文件内部实现使用。为了避免多文件链接时函数名冲突，编译器会在内部给导入函数增加模块名前缀。例如 `math.nx` 中公开的 `add` 会变成 Nexa 内部函数名 `math__add`，最终汇编符号为 `nx_math__add`。入口函数 `main` 保持为运行时入口。
+
+导入也支持别名：
+
+```nx
+import "math.nx" as m;
+
+fn main() -> i32 {
+    return m.add(1, 2);
+}
+```
 
 当前导入系统仍是第一版：
 
 ```text
 支持 import "file.nx";
-导入函数直接暴露给入口文件调用
+支持 math.add(...) 形式的模块限定调用
+支持 import "file.nx" as alias;
+导入文件只有 pub fn 对外可见，普通 fn 为文件私有
+保留 add(...) 形式调用公开函数以兼容第一版
 入口文件中的同名函数优先
-暂不提供完整模块命名空间、包版本、依赖解析和循环导入处理
+暂不提供包版本、依赖解析和完整循环导入处理
 ```
 
 ## 5. 泛型函数
@@ -809,8 +856,9 @@ select/channel 教学运行时
 当前 Nexa 是课程设计语言，不是完整工业语言。主要限制包括：
 
 ```text
-当前 import 是第一版功能，暂不支持完整模块命名空间、包版本和依赖解析
+当前 import 是第一版功能，暂不支持包版本和完整依赖解析
 没有完整的堆对象生命周期管理，数组和结构体主要依赖简单运行时模型
+impl 是第一版方法系统，暂不支持继承、虚函数、动态派发和隐式 self
 没有格式化 scanf 接口，只提供 read_i32() 和 read_f64()
 channel/select 是教学子集
 spawn 并发执行支持有限

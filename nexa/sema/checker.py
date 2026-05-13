@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
 
@@ -493,20 +493,32 @@ class Checker:
 
     def _check_call(self, expr: ast.CallExpr, owner_fn: ast.Function) -> Type:
         if isinstance(expr.callee, ast.FieldAccess) and expr.callee.base:
+            field = expr.callee.field
+            if isinstance(expr.callee.base, ast.NameExpr) and expr.callee.base.name in self.structs:
+                target = f"{expr.callee.base.name}__{field}"
+                if target not in self.functions:
+                    self.diag.error(expr.span, f"类型 {expr.callee.base.name} 没有方法 {field}")
+                    expr.inferred_type = str(I32)
+                    return I32
+                expr.callee = ast.NameExpr(expr.callee.span, None, target)
+                return self._check_call(expr, owner_fn)
+
             base_ty = self._check_expr(expr.callee.base, owner_fn)
             static_ty = base_ty.params[0] if base_ty.name in {"Ptr", "ConstPtr"} and base_ty.params else base_ty
-            target = self._lookup_method(static_ty.name, expr.callee.field)
+            target = self._lookup_method(static_ty.name, field)
             if target is None:
-                self.diag.error(expr.span, f"undefined method {static_ty.name}.{expr.callee.field}")
-                expr.inferred_type = str(I32)
-                return I32
+                target = f"{static_ty.name}__{field}"
+                if target not in self.functions:
+                    self.diag.error(expr.span, f"类型 {static_ty} 没有方法 {field}")
+                    expr.inferred_type = str(I32)
+                    return I32
             sig = self.functions[target]
             expr.resolved_callee = target
-            if expr.callee.field in self._virtual_method_names(static_ty.name):
-                expr.virtual_method = expr.callee.field
+            if field in self._virtual_method_names(static_ty.name):
+                expr.virtual_method = field
                 expr.static_type = static_ty.name
             if len(sig.params) != len(expr.args) + 1:
-                self.diag.error(expr.span, f"method {expr.callee.field} expects {max(0, len(sig.params) - 1)} arguments")
+                self.diag.error(expr.span, f"method {field} expects {max(0, len(sig.params) - 1)} arguments")
             if sig.params and sig.params[0] != static_ty and not self._is_subclass(static_ty.name, sig.params[0].name):
                 self.diag.error(expr.callee.base.span, f"method self expects {sig.params[0]}, got {static_ty}")
             for i, arg in enumerate(expr.args, start=1):

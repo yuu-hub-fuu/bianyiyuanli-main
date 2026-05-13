@@ -341,12 +341,12 @@ class Lowerer:
 
 def hir_to_mir(hir: HIRModule) -> MIRModule:
     out = MIRModule()
-        out.struct_layouts = dict(hir.struct_layouts)
-        out.string_pool = list(hir.string_pool)
-        out.class_ids = dict(hir.class_ids)
-        out.virtual_methods = {k: dict(v) for k, v in hir.virtual_methods.items()}
-        out.destructors = dict(hir.destructors)
-        out.class_bases = dict(hir.class_bases)
+    out.struct_layouts = dict(hir.struct_layouts)
+    out.string_pool = list(hir.string_pool)
+    out.class_ids = dict(hir.class_ids)
+    out.virtual_methods = {k: dict(v) for k, v in hir.virtual_methods.items()}
+    out.destructors = dict(hir.destructors)
+    out.class_bases = dict(hir.class_bases)
     for fn in hir.functions:
         mf = MIRFunction(fn.name)
         current = BasicBlock("entry")

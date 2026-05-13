@@ -30,6 +30,8 @@ class TokenKind(Enum):
     DELETE = auto()
     CONST = auto()
     IMPORT = auto()
+    PUB = auto()
+    IMPL = auto()
     MACRO = auto()
     SPAWN = auto()
     SELECT = auto()
@@ -88,6 +90,8 @@ KEYWORDS = {
     "delete": TokenKind.DELETE,
     "const": TokenKind.CONST,
     "import": TokenKind.IMPORT,
+    "pub": TokenKind.PUB,
+    "impl": TokenKind.IMPL,
     "macro": TokenKind.MACRO,
     "spawn": TokenKind.SPAWN,
     "select": TokenKind.SELECT,
