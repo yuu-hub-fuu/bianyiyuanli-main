@@ -201,6 +201,12 @@ class Function(Node):
 
 
 @dataclass(slots=True)
+class ImplBlock(Node):
+    type_name: str
+    methods: list[Function]
+
+
+@dataclass(slots=True)
 class Macro(Node):
     name: str
     params: list[str]

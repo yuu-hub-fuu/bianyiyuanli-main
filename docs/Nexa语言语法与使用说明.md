@@ -9,6 +9,7 @@
 ```text
 函数定义 fn
 结构体定义 struct
+方法实现块 impl
 宏定义 macro
 ```
 
@@ -85,7 +86,7 @@ foo123
 当前关键字包括：
 
 ```text
-import pub fn let return if else while struct macro spawn
+import pub fn let return if else while struct impl macro spawn
 select recv send default true false
 ```
 
@@ -184,6 +185,39 @@ p.x = p.x + 1;
 ```
 
 结构体构造时需要完整初始化所有字段，字段名必须存在，字段值类型必须与结构体声明一致。
+
+### 3.5 impl 方法
+
+可以使用 `impl` 为结构体绑定方法：
+
+```nx
+struct Point { x: i32, y: i32 }
+
+impl Point {
+    pub fn new(x: i32, y: i32) -> Point {
+        return Point { x: x, y: y };
+    }
+
+    pub fn sum(self: Point) -> i32 {
+        return self.x + self.y;
+    }
+}
+
+fn main() -> i32 {
+    let p: Point = Point.new(1, 2);
+    return p.sum();
+}
+```
+
+当前 `impl` 是第一版基础面向对象功能：
+
+```text
+方法写在 impl Type { ... } 中
+self 需要显式写成第一个参数，例如 self: Point
+Type.method(...) 会降低为 Type__method(...)
+value.method(...) 会降低为 Type__method(value, ...)
+暂不支持继承、虚函数、动态派发和隐式 self
+```
 
 ## 4. 函数定义
 
@@ -824,6 +858,7 @@ select/channel 教学运行时
 ```text
 当前 import 是第一版功能，暂不支持包版本和完整依赖解析
 没有完整的堆对象生命周期管理，数组和结构体主要依赖简单运行时模型
+impl 是第一版方法系统，暂不支持继承、虚函数、动态派发和隐式 self
 没有格式化 scanf 接口，只提供 read_i32() 和 read_f64()
 channel/select 是教学子集
 spawn 并发执行支持有限

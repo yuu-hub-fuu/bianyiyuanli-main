@@ -166,3 +166,25 @@ def test_native_import_namespace_alias_call(tmp_path: Path):
     assert res.build is not None
     assert res.exe_exit_code == 42
     assert "nx_math__mul" in res.build.asm_text
+
+
+def test_native_impl_methods(tmp_path: Path):
+    src = """
+struct Point { x: i32, y: i32 }
+impl Point {
+    pub fn new(x: i32, y: i32) -> Point {
+        return Point { x: x, y: y };
+    }
+    pub fn sum(self: Point) -> i32 {
+        return self.x + self.y;
+    }
+}
+fn main() -> i32 {
+    let p: Point = Point.new(20, 22);
+    return p.sum();
+}
+"""
+    res = _compile_and_run(src, tmp_path, "impl_methods")
+    assert res.exe_exit_code == 42
+    assert "nx_Point__new" in res.build.asm_text
+    assert "nx_Point__sum" in res.build.asm_text

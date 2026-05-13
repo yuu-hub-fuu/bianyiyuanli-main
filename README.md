@@ -100,6 +100,29 @@ let p: Pair = Pair { x: 1, y: 2 };
 p.x = p.x + 1;
 ```
 
+Structs can also have methods through an `impl` block:
+
+```nx
+struct Point { x: i32, y: i32 }
+
+impl Point {
+    pub fn new(x: i32, y: i32) -> Point {
+        return Point { x: x, y: y };
+    }
+
+    pub fn sum(self: Point) -> i32 {
+        return self.x + self.y;
+    }
+}
+
+fn main() -> i32 {
+    let p: Point = Point.new(1, 2);
+    return p.sum();
+}
+```
+
+This first method system is intentionally simple: `self` is written explicitly as the first parameter, `Type.method(...)` is lowered to `Type__method(...)`, and `value.method(...)` is lowered to `Type__method(value, ...)`. It does not implement inheritance, virtual dispatch, or implicit `self`.
+
 ### Teaching Extensions
 
 Nexa also includes course-oriented language features:
@@ -528,6 +551,7 @@ Nexa is still a course-project language, not an industrial language. Current lim
 - no formatted `scanf` equivalent; only `read_i32()` and `read_f64()` are provided
 - first-version imports only; no package registry, version solver, or full dependency resolver
 - no heap lifetime management beyond the simple runtime model
+- first-version `impl` methods only; no inheritance, virtual dispatch, or implicit `self`
 - no full concurrency semantics in the native backend
 - `spawn` is still mainly syntax/teaching surface
 - LLVM IR is an artifact backend and does not cover every extended feature as a production target

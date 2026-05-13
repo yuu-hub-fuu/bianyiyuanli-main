@@ -246,6 +246,41 @@ def test_import_private_function_is_hidden(tmp_path):
     assert any(d.level == 'error' for d in res.diagnostics)
 
 
+def test_impl_associated_and_receiver_methods_run_in_vm():
+    src = '''
+struct Point { x: i32, y: i32 }
+impl Point {
+  pub fn new(x: i32, y: i32) -> Point {
+    return Point { x: x, y: y };
+  }
+  pub fn sum(self: Point) -> i32 {
+    return self.x + self.y;
+  }
+}
+fn main() -> i32 {
+  let p: Point = Point.new(3, 4);
+  return p.sum();
+}
+'''
+    res = compile_source(src, mode='core', run=True)
+    assert all(d.level != 'error' for d in res.diagnostics)
+    assert res.run_value == 7
+    assert 'Point__new' in res.artifacts.asm_module
+    assert 'Point__sum' in res.artifacts.asm_module
+
+
+def test_impl_unknown_method_reports_error():
+    src = '''
+struct Point { x: i32, y: i32 }
+fn main() -> i32 {
+  let p: Point = Point { x: 1, y: 2 };
+  return p.missing();
+}
+'''
+    res = compile_source(src, mode='core')
+    assert any('没有方法 missing' in d.message for d in res.diagnostics)
+
+
 def test_llvm_emits_if_control_flow():
     src = 'fn main() -> i32 { let a: i32 = 1; if a > 0 { a = 2; } return a; }'
     res = compile_source(src, mode='core')

@@ -43,10 +43,12 @@ class Parser:
                 items.append(self._parse_macro())
             elif self._match(TokenKind.STRUCT):
                 items.append(self._parse_struct())
+            elif self._match(TokenKind.IMPL):
+                items.append(self._parse_impl())
             elif self._match(TokenKind.IMPORT):
                 items.append(self._parse_import())
             else:
-                self._error_here("期望顶层定义 import/pub/fn/macro/struct")
+                self._error_here("期望顶层定义 import/pub/fn/macro/struct/impl")
                 self._sync_top()
         return ast.Module(self._span_of(0), items)
 
@@ -71,6 +73,24 @@ class Parser:
             self._match(TokenKind.COMMA)
         self._expect(TokenKind.RBRACE, "struct 缺少 }")
         return ast.StructDef(name.span, name.lexeme, fields)
+
+    def _parse_impl(self) -> ast.ImplBlock:
+        name = self._expect(TokenKind.IDENT, "impl 后需要类型名")
+        self._expect(TokenKind.LBRACE, "impl 缺少 {")
+        methods: list[ast.Function] = []
+        while not self._at(TokenKind.RBRACE) and not self._at(TokenKind.EOF):
+            is_public = False
+            if self._match(TokenKind.PUB):
+                is_public = True
+            if self._match(TokenKind.FN):
+                methods.append(self._parse_fn(is_public=is_public))
+            else:
+                self._error_here("impl 中只能声明 fn 或 pub fn")
+                self._sync_top()
+                if self._at(TokenKind.RBRACE):
+                    break
+        self._expect(TokenKind.RBRACE, "impl 缺少 }")
+        return ast.ImplBlock(name.span, name.lexeme, methods)
 
     def _parse_fn(self, is_public: bool = False) -> ast.Function:
         name = self._expect(TokenKind.IDENT, "期望函数名")
@@ -336,7 +356,7 @@ class Parser:
             self._advance()
 
     def _sync_top(self) -> None:
-        while self._peek().kind not in {TokenKind.IMPORT, TokenKind.PUB, TokenKind.FN, TokenKind.MACRO, TokenKind.STRUCT, TokenKind.EOF}:
+        while self._peek().kind not in {TokenKind.IMPORT, TokenKind.PUB, TokenKind.FN, TokenKind.MACRO, TokenKind.STRUCT, TokenKind.IMPL, TokenKind.EOF}:
             self._advance()
 
     def _span_of(self, idx: int) -> Span:

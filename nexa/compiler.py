@@ -85,6 +85,11 @@ def _ast_dump(node: object, indent: int = 0) -> list[str]:
         for f in node.fields:
             out.append(f"{pad}  Field {f.name}: {f.type_ref.name}")
         return out
+    if isinstance(node, ast.ImplBlock):
+        out = [f"{pad}Impl {node.type_name}"]
+        for method in node.methods:
+            out.extend(_ast_dump(method, indent + 1))
+        return out
     if isinstance(node, ast.ImportDecl):
         alias = f" as {node.alias}" if node.alias else ""
         return [f'{pad}Import "{node.path}"{alias}']
@@ -412,6 +417,21 @@ def _rewrite_call_names_in_block(block: ast.Block, rename: dict[str, str]) -> No
         _rewrite_call_names_in_stmt(stmt, rename)
 
 
+def _flatten_impls(module: ast.Module) -> ast.Module:
+    items: list[object] = []
+    for item in module.items:
+        if isinstance(item, ast.ImplBlock):
+            rename = {method.name: f"{item.type_name}__{method.name}" for method in item.methods}
+            for method in item.methods:
+                method.name = rename[method.name]
+                _rewrite_call_names_in_block(method.body, rename)
+                items.append(method)
+        else:
+            items.append(item)
+    module.items = items
+    return module
+
+
 def _rename_module_functions(module: ast.Module, module_name: str, keep_main: bool) -> dict[str, str]:
     rename: dict[str, str] = {}
     for item in module.items:
@@ -452,6 +472,7 @@ def _resolve_imports(module: ast.Module, base_path: Path | None, diag: Diagnosti
             loaded_symbols[imp_path] = {}
             return {}
         imp_module = _parse_source_to_module(imp_source, diag)
+        imp_module = _flatten_impls(imp_module)
         nested_modules: dict[str, dict[str, str]] = {}
         nested_visible: dict[str, str] = {}
         for item in list(imp_module.items):
@@ -544,6 +565,7 @@ def compile_source(
 
     parser = Parser(tokens, diag)
     module = parser.parse()
+    module = _flatten_impls(module)
     module = _resolve_imports(module, Path(source_path).resolve() if source_path else None, diag)
     artifacts.ast_text = "\n".join(_ast_dump(module))
     stage("Parser", "failed" if diag.has_errors() else "ok", f"items={len(module.items)}")
