@@ -929,7 +929,7 @@ class NexaStudio(tk.Tk):
             ("string", r'"(?:[^"\\]|\\.)*"', re.MULTILINE),
             ("escape", r'\\[nrt"\\]', re.MULTILINE),
             ("function", r"\b[A-Za-z_]\w*(?=\s*\()", re.MULTILINE),
-            ("keyword", r"\b(import|fn|let|return|if|else|while|for|in|break|continue|struct|enum|match|macro|spawn|select|recv|send|default|true|false)\b", re.MULTILINE),
+            ("keyword", r"\b(import|pub|fn|let|return|if|else|while|for|in|break|continue|struct|impl|enum|match|macro|spawn|select|recv|send|default|true|false)\b", re.MULTILINE),
             ("type", r"\b(i32|f64|bool|str|Chan|Ord)\b", re.MULTILINE),
             ("number", r"\b\d+(?:\.\d+)?\b", re.MULTILINE),
             ("operator", r"->|=>|==|!=|<=|>=|&&|\|\||[+\-*/%=<>!]", re.MULTILINE),

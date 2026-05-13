@@ -19,6 +19,8 @@ class TokenKind(Enum):
     WHILE = auto()
     STRUCT = auto()
     IMPORT = auto()
+    PUB = auto()
+    IMPL = auto()
     MACRO = auto()
     SPAWN = auto()
     SELECT = auto()
@@ -64,6 +66,8 @@ KEYWORDS = {
     "while": TokenKind.WHILE,
     "struct": TokenKind.STRUCT,
     "import": TokenKind.IMPORT,
+    "pub": TokenKind.PUB,
+    "impl": TokenKind.IMPL,
     "macro": TokenKind.MACRO,
     "spawn": TokenKind.SPAWN,
     "select": TokenKind.SELECT,

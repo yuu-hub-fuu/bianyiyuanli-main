@@ -320,6 +320,27 @@ class Checker:
         return I32
 
     def _check_call(self, expr: ast.CallExpr, owner_fn: ast.Function) -> Type:
+        if isinstance(expr.callee, ast.FieldAccess) and expr.callee.base:
+            field = expr.callee.field
+            if isinstance(expr.callee.base, ast.NameExpr) and expr.callee.base.name in self.structs:
+                callee = f"{expr.callee.base.name}__{field}"
+                if callee not in self.functions:
+                    self.diag.error(expr.span, f"类型 {expr.callee.base.name} 没有方法 {field}")
+                    expr.inferred_type = str(I32)
+                    return I32
+                expr.callee = ast.NameExpr(expr.callee.span, None, callee)
+                return self._check_call(expr, owner_fn)
+
+            receiver_ty = self._check_expr(expr.callee.base, owner_fn)
+            callee = f"{receiver_ty.name}__{field}"
+            if callee not in self.functions:
+                self.diag.error(expr.span, f"类型 {receiver_ty} 没有方法 {field}")
+                expr.inferred_type = str(I32)
+                return I32
+            receiver = expr.callee.base
+            expr.callee = ast.NameExpr(expr.callee.span, None, callee)
+            expr.args = [receiver, *expr.args]
+            return self._check_call(expr, owner_fn)
         if not isinstance(expr.callee, ast.NameExpr):
             self.diag.error(expr.span, "只支持直接函数调用")
             expr.inferred_type = str(I32)

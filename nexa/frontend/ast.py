@@ -185,6 +185,7 @@ class StructDef(Node):
 @dataclass(slots=True)
 class ImportDecl(Node):
     path: str
+    alias: str | None = None
 
 
 @dataclass(slots=True)
@@ -196,6 +197,13 @@ class Function(Node):
     generic_params: list[str] = field(default_factory=list)
     generic_bounds: dict[str, list[str]] = field(default_factory=dict)
     is_generic_template: bool = False
+    is_public: bool = False
+
+
+@dataclass(slots=True)
+class ImplBlock(Node):
+    type_name: str
+    methods: list[Function]
 
 
 @dataclass(slots=True)
