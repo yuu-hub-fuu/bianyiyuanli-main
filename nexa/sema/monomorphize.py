@@ -85,7 +85,7 @@ def monomorphize(module: ast.Module, callsites: list[GenericCallSite]) -> ast.Mo
 
 
 def _clone_function(fn: ast.Function, new_name: str, subst: dict[str, str]) -> ast.Function:
-    cloned = ast.Function(fn.span, new_name, copy.deepcopy(fn.params), copy.deepcopy(fn.ret_type), copy.deepcopy(fn.body), [], {})
+    cloned = ast.Function(fn.span, new_name, copy.deepcopy(fn.params), copy.deepcopy(fn.ret_type), copy.deepcopy(fn.body), [], {}, False, fn.is_public)
 
     def apply_typeref(t: ast.TypeRef) -> ast.TypeRef:
         if t.name in subst:

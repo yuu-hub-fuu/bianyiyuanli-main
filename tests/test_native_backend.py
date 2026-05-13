@@ -128,7 +128,7 @@ fn main() -> i32 {
 
 def test_native_imported_function_call(tmp_path: Path):
     lib = tmp_path / "math.nx"
-    lib.write_text("fn add(a: i32, b: i32) -> i32 { return a + b; }", encoding="utf-8")
+    lib.write_text("pub fn add(a: i32, b: i32) -> i32 { return a + b; }", encoding="utf-8")
     main = tmp_path / "main.nx"
     src = 'import "math.nx"; fn main() -> i32 { return add(9, 8); }'
     main.write_text(src, encoding="utf-8")
@@ -145,3 +145,24 @@ def test_native_imported_function_call(tmp_path: Path):
     assert res.build is not None
     assert res.exe_exit_code == 17
     assert "nx_math__add" in res.build.asm_text
+
+
+def test_native_import_namespace_alias_call(tmp_path: Path):
+    lib = tmp_path / "math.nx"
+    lib.write_text("pub fn mul(a: i32, b: i32) -> i32 { return a * b; }", encoding="utf-8")
+    main = tmp_path / "main.nx"
+    src = 'import "math.nx" as m; fn main() -> i32 { return m.mul(6, 7); }'
+    main.write_text(src, encoding="utf-8")
+    res = compile_source(
+        src,
+        mode="core",
+        build=True,
+        run_exe=True,
+        build_dir=str(tmp_path),
+        source_stem="import_alias",
+        source_path=str(main),
+    )
+    assert all(d.level != "error" for d in res.diagnostics), [d.message for d in res.diagnostics]
+    assert res.build is not None
+    assert res.exe_exit_code == 42
+    assert "nx_math__mul" in res.build.asm_text

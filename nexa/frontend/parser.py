@@ -33,6 +33,12 @@ class Parser:
         while not self._at(TokenKind.EOF):
             if self._match(TokenKind.FN):
                 items.append(self._parse_fn())
+            elif self._match(TokenKind.PUB):
+                if self._match(TokenKind.FN):
+                    items.append(self._parse_fn(is_public=True))
+                else:
+                    self._error_here("pub 后只能声明 fn")
+                    self._sync_top()
             elif self._match(TokenKind.MACRO):
                 items.append(self._parse_macro())
             elif self._match(TokenKind.STRUCT):
@@ -40,14 +46,18 @@ class Parser:
             elif self._match(TokenKind.IMPORT):
                 items.append(self._parse_import())
             else:
-                self._error_here("期望顶层定义 import/fn/macro/struct")
+                self._error_here("期望顶层定义 import/pub/fn/macro/struct")
                 self._sync_top()
         return ast.Module(self._span_of(0), items)
 
     def _parse_import(self) -> ast.ImportDecl:
         path = self._expect(TokenKind.STRING, 'import 需要字符串路径，例如 import "math.nx";')
+        alias = None
+        if self._at(TokenKind.IDENT) and self._peek().lexeme == "as":
+            self._advance()
+            alias = self._expect(TokenKind.IDENT, "import as 后需要模块别名").lexeme
         self._expect(TokenKind.SEMI, "import 缺少分号", fix="在 import 后插入 ';'")
-        return ast.ImportDecl(path.span, path.lexeme)
+        return ast.ImportDecl(path.span, path.lexeme, alias)
 
     def _parse_struct(self) -> ast.StructDef:
         name = self._expect(TokenKind.IDENT, "期望结构体名")
@@ -62,7 +72,7 @@ class Parser:
         self._expect(TokenKind.RBRACE, "struct 缺少 }")
         return ast.StructDef(name.span, name.lexeme, fields)
 
-    def _parse_fn(self) -> ast.Function:
+    def _parse_fn(self, is_public: bool = False) -> ast.Function:
         name = self._expect(TokenKind.IDENT, "期望函数名")
         generics: list[str] = []
         bounds: dict[str, list[str]] = {}
@@ -94,7 +104,7 @@ class Parser:
         if self._match(TokenKind.ARROW):
             ret = self._parse_type_ref()
         body = self._parse_block()
-        return ast.Function(name.span, name.lexeme, params, ret, body, generics, bounds, bool(generics))
+        return ast.Function(name.span, name.lexeme, params, ret, body, generics, bounds, bool(generics), is_public)
 
     def _parse_macro(self) -> ast.Macro:
         name = self._expect(TokenKind.IDENT, "期望宏名")
@@ -326,7 +336,7 @@ class Parser:
             self._advance()
 
     def _sync_top(self) -> None:
-        while self._peek().kind not in {TokenKind.IMPORT, TokenKind.FN, TokenKind.MACRO, TokenKind.STRUCT, TokenKind.EOF}:
+        while self._peek().kind not in {TokenKind.IMPORT, TokenKind.PUB, TokenKind.FN, TokenKind.MACRO, TokenKind.STRUCT, TokenKind.EOF}:
             self._advance()
 
     def _span_of(self, idx: int) -> Span:

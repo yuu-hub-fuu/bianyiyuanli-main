@@ -199,7 +199,7 @@ def test_len_rejects_non_array_argument():
 
 def test_import_string_path_allows_cross_file_vm_call(tmp_path):
     lib = tmp_path / "math.nx"
-    lib.write_text("fn add(a: i32, b: i32) -> i32 { return a + b; }", encoding="utf-8")
+    lib.write_text("pub fn add(a: i32, b: i32) -> i32 { return a + b; }", encoding="utf-8")
     main = tmp_path / "main.nx"
     src = 'import "math.nx"; fn main() -> i32 { return add(2, 5); }'
     main.write_text(src, encoding="utf-8")
@@ -207,6 +207,43 @@ def test_import_string_path_allows_cross_file_vm_call(tmp_path):
     assert all(d.level != 'error' for d in res.diagnostics)
     assert res.run_value == 7
     assert "math__add" in res.artifacts.asm_module
+
+
+def test_import_namespace_call_runs_in_vm(tmp_path):
+    lib = tmp_path / "math.nx"
+    lib.write_text("pub fn add(a: i32, b: i32) -> i32 { return a + b; }", encoding="utf-8")
+    main = tmp_path / "main.nx"
+    src = 'import "math.nx"; fn main() -> i32 { return math.add(3, 6); }'
+    main.write_text(src, encoding="utf-8")
+    res = compile_source(src, mode='core', run=True, source_path=str(main))
+    assert all(d.level != 'error' for d in res.diagnostics)
+    assert res.run_value == 9
+    assert "math__add" in res.artifacts.asm_module
+
+
+def test_import_alias_namespace_call_runs_in_vm(tmp_path):
+    lib = tmp_path / "math.nx"
+    lib.write_text("pub fn mul(a: i32, b: i32) -> i32 { return a * b; }", encoding="utf-8")
+    main = tmp_path / "main.nx"
+    src = 'import "math.nx" as m; fn main() -> i32 { return m.mul(3, 6); }'
+    main.write_text(src, encoding="utf-8")
+    res = compile_source(src, mode='core', run=True, source_path=str(main))
+    assert all(d.level != 'error' for d in res.diagnostics)
+    assert res.run_value == 18
+    assert "math__mul" in res.artifacts.asm_module
+
+
+def test_import_private_function_is_hidden(tmp_path):
+    lib = tmp_path / "math.nx"
+    lib.write_text(
+        "fn helper() -> i32 { return 1; } pub fn add(a: i32, b: i32) -> i32 { return a + b + helper(); }",
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.nx"
+    src = 'import "math.nx"; fn main() -> i32 { return math.helper(); }'
+    main.write_text(src, encoding="utf-8")
+    res = compile_source(src, mode='core', source_path=str(main))
+    assert any(d.level == 'error' for d in res.diagnostics)
 
 
 def test_llvm_emits_if_control_flow():
