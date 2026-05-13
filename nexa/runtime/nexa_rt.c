@@ -301,6 +301,54 @@ char* nx_max_str(const char* a, const char* b) {
     return nx_str_clone(strcmp(a, b) >= 0 ? a : b);
 }
 
+long long nx_ptr_new_i64(long long v) {
+    long long* p = (long long*)nx_alloc((long long)sizeof(long long));
+    *p = v;
+    return (long long)(intptr_t)p;
+}
+
+long long nx_ptr_new_f64(double v) {
+    double* p = (double*)nx_alloc((long long)sizeof(double));
+    *p = v;
+    return (long long)(intptr_t)p;
+}
+
+long long nx_ptr_new_ptr(long long v) {
+    return nx_ptr_new_i64(v);
+}
+
+long long nx_ptr_get_i64(long long ptr) {
+    long long* p = (long long*)(intptr_t)ptr;
+    if (!p) nx_panic("ptr_get on null pointer");
+    return *p;
+}
+
+double nx_ptr_get_f64(long long ptr) {
+    double* p = (double*)(intptr_t)ptr;
+    if (!p) nx_panic("ptr_get on null pointer");
+    return *p;
+}
+
+long long nx_ptr_get_ptr(long long ptr) {
+    return nx_ptr_get_i64(ptr);
+}
+
+void nx_ptr_set_i64(long long ptr, long long v) {
+    long long* p = (long long*)(intptr_t)ptr;
+    if (!p) nx_panic("ptr_set on null pointer");
+    *p = v;
+}
+
+void nx_ptr_set_f64(long long ptr, double v) {
+    double* p = (double*)(intptr_t)ptr;
+    if (!p) nx_panic("ptr_set on null pointer");
+    *p = v;
+}
+
+void nx_ptr_set_ptr(long long ptr, long long v) {
+    nx_ptr_set_i64(ptr, v);
+}
+
 long long nx_rand(void) {
     return (long long)rand();
 }

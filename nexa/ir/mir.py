@@ -35,3 +35,7 @@ class MIRModule:
     functions: list[MIRFunction] = field(default_factory=list)
     struct_layouts: dict[str, list[str]] = field(default_factory=dict)
     string_pool: list[str] = field(default_factory=list)
+    class_ids: dict[str, int] = field(default_factory=dict)
+    virtual_methods: dict[str, dict[str, str]] = field(default_factory=dict)
+    destructors: dict[str, str] = field(default_factory=dict)
+    class_bases: dict[str, str | None] = field(default_factory=dict)

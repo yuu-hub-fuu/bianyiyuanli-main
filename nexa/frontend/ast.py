@@ -60,6 +60,12 @@ class StructLit(Expr):
 
 
 @dataclass(slots=True)
+class NewExpr(Expr):
+    type_ref: TypeRef | None = None
+    args: list[Expr] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class FieldAccess(Expr):
     base: Expr | None = None
     field: str = ""
@@ -93,6 +99,10 @@ class BinaryExpr(Expr):
 class CallExpr(Expr):
     callee: Expr | None = None
     args: list[Expr] = field(default_factory=list)
+    resolved_callee: str | None = None
+    virtual_method: str | None = None
+    static_type: str | None = None
+    is_function_pointer: bool = False
 
 
 @dataclass(slots=True)
@@ -142,6 +152,11 @@ class ReturnStmt(Stmt):
 
 
 @dataclass(slots=True)
+class DeleteStmt(Stmt):
+    value: Expr
+
+
+@dataclass(slots=True)
 class IfStmt(Stmt):
     cond: Expr
     then_block: Block
@@ -174,12 +189,22 @@ class Param(Node):
 class Field(Node):
     name: str
     type_ref: TypeRef
+    visibility: str = "public"
+    owner: str | None = None
 
 
 @dataclass(slots=True)
 class StructDef(Node):
     name: str
     fields: list[Field]
+
+
+@dataclass(slots=True)
+class ClassDef(Node):
+    name: str
+    fields: list[Field]
+    methods: list[Function]
+    base: str | None = None
 
 
 @dataclass(slots=True)
@@ -196,6 +221,12 @@ class Function(Node):
     generic_params: list[str] = field(default_factory=list)
     generic_bounds: dict[str, list[str]] = field(default_factory=dict)
     is_generic_template: bool = False
+    owner_class: str | None = None
+    visibility: str = "public"
+    is_virtual: bool = False
+    is_override: bool = False
+    is_constructor: bool = False
+    is_destructor: bool = False
 
 
 @dataclass(slots=True)

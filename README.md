@@ -188,12 +188,46 @@ srand(i32)             -> void
 rand_range(i32, i32)   -> i32
 time()                 -> i32
 clock()                -> i32
+ptr_new(T)             -> Ptr[T]
+ptr_get(Ptr[T])        -> T
+ptr_set(Ptr[T], T)     -> void
+copy/clone(T)          -> T
+shallow_copy(T)        -> T
+deep_copy(T)           -> T
 chan(i32)              -> Chan[i32]
 send(Chan[i32], i32)   -> void
 recv(Chan[i32])        -> i32
 ```
 
 `read_i32`, `read_f64`, and `read_str` are simple stdin helpers. They are intentionally smaller than C `scanf`: each call reads one value of the declared type.
+
+Pointers are written as `Ptr[T]`. `&x` takes the address of a local variable, `*p` reads through a pointer, and `*p = value;` writes through it:
+
+```nexa
+fn main() -> i32 {
+  let x: i32 = 10;
+  let p: Ptr[i32] = &x;
+  *p = *p + 2;
+  return x;
+}
+```
+
+Classes lower to the existing struct/function pipeline, so they work in the VM and native x64 backend. Fields can be `public` or `private`, classes can `extends` a base class, and `obj.method(args)` lowers to a real function call with `self` passed first:
+
+```nexa
+class Animal {
+  public age: i32,
+  private secret: i32,
+  public fn get_secret(self: Animal) -> i32 { return self.secret; }
+}
+
+class Dog extends Animal {
+  public bonus: i32,
+  public fn score(self: Dog) -> i32 {
+    return self.age + self.get_secret() + self.bonus;
+  }
+}
+```
 
 ## Modes
 

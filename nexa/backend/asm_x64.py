@@ -63,6 +63,9 @@ _RUNTIME_BUILTINS = {
     "rand_range": "nx_rand_range",
     "time": "nx_time",
     "clock": "nx_clock",
+    "ptr_get": "nx_ptr_get_i64",
+    "ptr_set": "nx_ptr_set_i64",
+    "ptr_new": "nx_ptr_new_i64",
     "chan": "nx_chan_new",
     "send": "nx_chan_send",
     "recv": "nx_chan_recv",
@@ -98,6 +101,9 @@ _RUNTIME_SIGS: dict[str, tuple[list[str], str]] = {
     "rand_range": (["i64", "i64"], "i64"),
     "time": ([], "i64"),
     "clock": ([], "i64"),
+    "ptr_get": (["i64"], "i64"),
+    "ptr_set": (["i64", "i64"], "void"),
+    "ptr_new": (["i64"], "i64"),
     "chan": (["i64"], "i64"),
     "send": (["i64", "i64"], "void"),
     "recv": (["i64"], "i64"),
@@ -216,6 +222,10 @@ class _FunctionContext:
     layouts: dict[str, list[str]]
     rodata: _RodataPool
     signatures: dict[str, tuple[list[str], str]]
+    class_ids: dict[str, int] = field(default_factory=dict)
+    virtual_methods: dict[str, dict[str, str]] = field(default_factory=dict)
+    destructors: dict[str, str] = field(default_factory=dict)
+    class_bases: dict[str, str | None] = field(default_factory=dict)
     slot_types: dict[str, str] = field(default_factory=dict)
     fn_ret_type: str = "i64"
     slots: dict[str, int] = field(default_factory=dict)
@@ -369,6 +379,13 @@ def _emit_const(ctx: _FunctionContext, ins: MIRInstr) -> None:
         ctx.body.append(f"    mov {ctx.loc(ins.dst)}, rax")
         return
     ctx.body.append(f"    mov rax, {value}")
+    ctx.body.append(f"    mov {ctx.loc(ins.dst)}, rax")
+
+
+def _emit_func_addr(ctx: _FunctionContext, ins: MIRInstr) -> None:
+    if not ins.dst or not ins.args:
+        return
+    ctx.body.append(f"    lea rax, [rip+{_resolve_callee(ins.args[0])}]")
     ctx.body.append(f"    mov {ctx.loc(ins.dst)}, rax")
 
 
@@ -649,6 +666,27 @@ def _runtime_dispatch(ctx: _FunctionContext, callee: str, args: list[str], ret_h
         if result_ty == "f64" or first_ty == "f64":
             return f"{prefix}_f64", ["f64", "f64"], "f64"
         return f"{prefix}_i64", ["i64", "i64"], "i64"
+    if callee in {"copy", "clone", "shallow_copy", "deep_copy"}:
+        if first_ty == "str":
+            return "nx_str_clone", ["str"], "str"
+        return "nx_to_i32_i64", ["i64"], result_ty
+    if callee == "ptr_new":
+        if first_ty == "f64":
+            return "nx_ptr_new_f64", ["f64"], "i64"
+        return "nx_ptr_new_i64", ["i64"], "i64"
+    if callee == "ptr_get":
+        if result_ty == "f64":
+            return "nx_ptr_get_f64", ["i64"], "f64"
+        return "nx_ptr_get_i64", ["i64"], "i64"
+    if callee == "ptr_set":
+        second_ty = ctx.type_of(args[1]) if len(args) > 1 else "i64"
+        if second_ty == "f64":
+            return "nx_ptr_set_f64", ["i64", "f64"], "void"
+        return "nx_ptr_set_i64", ["i64", "i64"], "void"
+    if callee == "const_ptr_new":
+        if first_ty == "f64":
+            return "nx_ptr_new_f64", ["f64"], "i64"
+        return "nx_ptr_new_i64", ["i64"], "i64"
     return None
 
 
@@ -777,6 +815,30 @@ def _emit_array_set(ctx: _FunctionContext, ins: MIRInstr) -> None:
     ctx.body.append("    mov qword ptr [rax+8+rcx*8], rdx")
 
 
+def _emit_ptr_addr(ctx: _FunctionContext, ins: MIRInstr) -> None:
+    if not ins.dst or not ins.args:
+        return
+    src = ins.args[0]
+    ctx.body.append(f"    lea rax, {ctx.loc(src)}")
+    ctx.body.append(f"    mov {ctx.loc(ins.dst)}, rax")
+
+
+def _emit_ptr_load(ctx: _FunctionContext, ins: MIRInstr) -> None:
+    if not ins.dst or not ins.args:
+        return
+    _emit_load(ctx, "rax", ins.args[0])
+    ctx.body.append("    mov rax, qword ptr [rax]")
+    ctx.body.append(f"    mov {ctx.loc(ins.dst)}, rax")
+
+
+def _emit_ptr_store(ctx: _FunctionContext, ins: MIRInstr) -> None:
+    if len(ins.args) != 2:
+        return
+    _emit_load(ctx, "rax", ins.args[0])
+    _emit_load(ctx, "rdx", ins.args[1])
+    ctx.body.append("    mov qword ptr [rax], rdx")
+
+
 def _emit_ret(ctx: _FunctionContext, ins: MIRInstr) -> None:
     if ins.args:
         if _is_float(ctx.fn_ret_type):
@@ -853,6 +915,12 @@ def _emit_instr(ctx: _FunctionContext, ins: MIRInstr) -> None:
         _emit_array_get(ctx, ins)
     elif ins.kind == HIRKind.ARRAY_SET:
         _emit_array_set(ctx, ins)
+    elif ins.kind == HIRKind.PTR_ADDR:
+        _emit_ptr_addr(ctx, ins)
+    elif ins.kind == HIRKind.PTR_LOAD:
+        _emit_ptr_load(ctx, ins)
+    elif ins.kind == HIRKind.PTR_STORE:
+        _emit_ptr_store(ctx, ins)
     elif ins.kind == HIRKind.SPAWN:
         ctx.body.append("    ; SPAWN: native build is single-threaded; ignored")
     elif ins.kind == HIRKind.LABEL:

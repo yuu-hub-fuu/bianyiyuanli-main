@@ -25,6 +25,13 @@ class HIRKind(Enum):
     ARRAY_NEW = auto()
     ARRAY_GET = auto()
     ARRAY_SET = auto()
+    PTR_ADDR = auto()
+    PTR_LOAD = auto()
+    PTR_STORE = auto()
+    FUNC_ADDR = auto()
+    CALL_PTR = auto()
+    CALL_VIRTUAL = auto()
+    DELETE_OBJECT = auto()
 
 
 @dataclass(slots=True)
@@ -59,3 +66,7 @@ class HIRModule:
     functions: list[HIRFunction] = field(default_factory=list)
     struct_layouts: dict[str, list[str]] = field(default_factory=dict)
     string_pool: list[str] = field(default_factory=list)
+    class_ids: dict[str, int] = field(default_factory=dict)
+    virtual_methods: dict[str, dict[str, str]] = field(default_factory=dict)
+    destructors: dict[str, str] = field(default_factory=dict)
+    class_bases: dict[str, str | None] = field(default_factory=dict)

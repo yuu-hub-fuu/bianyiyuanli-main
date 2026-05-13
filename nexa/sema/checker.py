@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from nexa.frontend import ast
 from nexa.frontend.diagnostics import DiagnosticBag
 from .symbols import ScopeStack, Symbol
-from .types import BOOL, BUILTINS, F64, I32, STR, Type, VOID, array, channel, is_type_var, type_var
+from .types import BOOL, BUILTINS, F64, I32, STR, Type, VOID, array, channel, const_ptr, func, is_type_var, ptr, type_var
 
 
 @dataclass(slots=True)
@@ -39,6 +39,14 @@ class Checker:
         self.mode = mode
         self.generic_calls: list[GenericCallSite] = []
         self.structs: dict[str, dict[str, Type]] = {}
+        self.class_bases: dict[str, str | None] = {}
+        self.class_field_meta: dict[tuple[str, str], tuple[str, str]] = {}
+        self.class_methods: dict[str, dict[str, str]] = {}
+        self.virtual_methods: dict[str, dict[str, str]] = {}
+        self.constructors: dict[str, str] = {}
+        self.destructors: dict[str, str] = {}
+        self.current_class: str | None = None
+        T = type_var("T")
         self.functions: dict[str, FuncSig] = {
             "print": FuncSig([I32], VOID),
             "panic": FuncSig([STR], VOID),
@@ -65,6 +73,15 @@ class Checker:
             "rand_range": FuncSig([I32, I32], I32),
             "time": FuncSig([], I32),
             "clock": FuncSig([], I32),
+            "ptr_new": FuncSig([T], ptr(T), ["T"]),
+            "ptr_get": FuncSig([ptr(T)], T, ["T"]),
+            "ptr_set": FuncSig([ptr(T), T], VOID, ["T"]),
+            "const_ptr_new": FuncSig([T], const_ptr(T), ["T"]),
+            "call": FuncSig([], I32),
+            "copy": FuncSig([T], T, ["T"]),
+            "clone": FuncSig([T], T, ["T"]),
+            "shallow_copy": FuncSig([T], T, ["T"]),
+            "deep_copy": FuncSig([T], T, ["T"]),
             "chan": FuncSig([I32], channel(I32)),
             "send": FuncSig([channel(I32), I32], VOID),
             "recv": FuncSig([channel(I32)], I32),
@@ -72,10 +89,16 @@ class Checker:
 
     def analyze(self, module: ast.Module) -> SemanticResult:
         for item in module.items:
+            if isinstance(item, ast.ClassDef):
+                self.class_bases[item.name] = item.base
+
+        for item in module.items:
             if isinstance(item, ast.StructDef):
                 st = Type(item.name)
                 self.structs[item.name] = {f.name: self._resolve_type(f.type_ref) for f in item.fields}
                 self.scopes.declare(Symbol(item.name, "struct", st, self.scopes.scope_id))
+            if isinstance(item, ast.ClassDef):
+                self._register_class(item)
             if isinstance(item, ast.Function):
                 ptys = [self._resolve_type(p.type_ref, item.generic_params) for p in item.params]
                 rty = self._resolve_type(item.ret_type, item.generic_params)
@@ -84,9 +107,44 @@ class Checker:
         for item in module.items:
             if isinstance(item, ast.Function):
                 self._check_function(item)
+            if isinstance(item, ast.ClassDef):
+                for method in item.methods:
+                    self._check_function(method)
         return SemanticResult(module, self.scopes, self.functions, self.generic_calls, self.structs)
 
+    def _register_class(self, item: ast.ClassDef) -> None:
+        fields: dict[str, Type] = {}
+        if item.base:
+            fields.update(self.structs.get(item.base, {}))
+            self.class_methods[item.name] = dict(self.class_methods.get(item.base, {}))
+        else:
+            self.class_methods[item.name] = {}
+        for f in item.fields:
+            fields[f.name] = self._resolve_type(f.type_ref)
+            self.class_field_meta[(item.name, f.name)] = (f.visibility, f.owner or item.name)
+        self.structs[item.name] = fields
+        self.scopes.declare(Symbol(item.name, "class", Type(item.name), self.scopes.scope_id))
+        for method in item.methods:
+            public_name = method.name.split("__", 1)[-1]
+            if method.is_constructor:
+                public_name = "__init"
+                self.constructors[item.name] = method.name
+            elif method.is_destructor:
+                public_name = "__drop"
+                self.destructors[item.name] = method.name
+            self.class_methods.setdefault(item.name, {})[public_name] = method.name
+            if method.is_virtual or method.is_override or method.is_destructor:
+                self.virtual_methods.setdefault(item.name, {})[public_name] = method.name
+                if method.is_override and item.base and public_name not in self.virtual_methods.get(item.base, {}):
+                    self.diag.error(method.span, f"override method {public_name} does not override a virtual base method")
+            ptys = [self._resolve_type(p.type_ref, method.generic_params) for p in method.params]
+            rty = self._resolve_type(method.ret_type, method.generic_params)
+            self.functions[method.name] = FuncSig(ptys, rty, method.generic_params, method.generic_bounds)
+            self.scopes.declare(Symbol(method.name, "method", Type("fn"), self.scopes.scope_id))
+
     def _check_function(self, fn: ast.Function) -> None:
+        prev_class = self.current_class
+        self.current_class = fn.owner_class
         self.scopes.push()
         for p in fn.params:
             ty = self._resolve_type(p.type_ref, fn.generic_params)
@@ -96,6 +154,7 @@ class Checker:
         expected = self._resolve_type(fn.ret_type, fn.generic_params)
         self._check_block(fn.body, expected, fn)
         self.scopes.pop()
+        self.current_class = prev_class
 
     def _check_block(self, block: ast.Block, ret_ty: Type, owner_fn: ast.Function) -> None:
         self.scopes.push()
@@ -125,6 +184,10 @@ class Checker:
             got = VOID if stmt.value is None else self._check_expr(stmt.value, owner_fn)
             if got != ret_ty:
                 self.diag.error(stmt.span, f"返回类型不匹配: 期望 {ret_ty}, 实际 {got}")
+        elif isinstance(stmt, ast.DeleteStmt):
+            ty = self._check_expr(stmt.value, owner_fn)
+            if ty.name not in {"Ptr", "ConstPtr"} or not ty.params:
+                self.diag.error(stmt.span, f"delete expects Ptr[T], got {ty}")
         elif isinstance(stmt, ast.IfStmt):
             cty = self._check_expr(stmt.cond, owner_fn)
             if cty != BOOL:
@@ -160,6 +223,11 @@ class Checker:
         if isinstance(expr, ast.NameExpr):
             sym = self.scopes.lookup(expr.name)
             if sym is None:
+                sig = self.functions.get(expr.name)
+                if sig is not None:
+                    out = func(sig.params, sig.ret)
+                    expr.inferred_type = str(out)
+                    return out
                 self.diag.error(expr.span, f"未声明标识符: {expr.name}", fixits=[f"是否想声明 let {expr.name}: i32 = ...;"])
                 expr.inferred_type = str(I32)
                 return I32
@@ -167,6 +235,8 @@ class Checker:
             return sym.ty
         if isinstance(expr, ast.StructLit):
             return self._check_struct_lit(expr, owner_fn)
+        if isinstance(expr, ast.NewExpr):
+            return self._check_new_expr(expr, owner_fn)
         if isinstance(expr, ast.FieldAccess) and expr.base:
             return self._check_field_access(expr, owner_fn)
         if isinstance(expr, ast.ArrayLit):
@@ -202,6 +272,20 @@ class Checker:
                     self.diag.error(expr.span, "负号运算需要 i32 或 f64")
                 expr.inferred_type = str(rhs)
                 return rhs
+            if expr.op == "&":
+                if not isinstance(expr.rhs, ast.NameExpr):
+                    self.diag.error(expr.span, "& expects a local variable name")
+                out = ptr(rhs)
+                expr.inferred_type = str(out)
+                return out
+            if expr.op == "*":
+                if rhs.name not in {"Ptr", "ConstPtr"} or not rhs.params:
+                    self.diag.error(expr.span, "* expects Ptr[T] or ConstPtr[T]")
+                    expr.inferred_type = str(I32)
+                    return I32
+                out = rhs.params[0]
+                expr.inferred_type = str(out)
+                return out
         if isinstance(expr, ast.BinaryExpr):
             return self._check_binary(expr, owner_fn)
         if isinstance(expr, ast.CallExpr):
@@ -232,8 +316,30 @@ class Checker:
         expr.inferred_type = expr.name
         return Type(expr.name)
 
+    def _check_new_expr(self, expr: ast.NewExpr, owner_fn: ast.Function) -> Type:
+        class_ty = self._resolve_type(expr.type_ref, owner_fn.generic_params)
+        ctor_name = self.constructors.get(class_ty.name)
+        if class_ty.name not in self.structs:
+            self.diag.error(expr.span, f"new expects a class or struct type, got {class_ty}")
+        arg_types = [self._check_expr(arg, owner_fn) for arg in expr.args]
+        if ctor_name:
+            sig = self.functions[ctor_name]
+            expected = sig.params[1:]
+            if len(expected) != len(arg_types):
+                self.diag.error(expr.span, f"constructor for {class_ty.name} expects {len(expected)} arguments")
+            for idx, (got, exp) in enumerate(zip(arg_types, expected, strict=False)):
+                if got != exp:
+                    self.diag.error(expr.args[idx].span, f"constructor argument expects {exp}, got {got}")
+        elif arg_types:
+            self.diag.error(expr.span, f"{class_ty.name} has no constructor accepting arguments")
+        out = ptr(class_ty)
+        expr.inferred_type = str(out)
+        return out
+
     def _check_field_access(self, expr: ast.FieldAccess, owner_fn: ast.Function) -> Type:
         base_ty = self._check_expr(expr.base, owner_fn)
+        if base_ty.name in {"Ptr", "ConstPtr"} and base_ty.params:
+            base_ty = base_ty.params[0]
         fields = self.structs.get(base_ty.name)
         if fields is None:
             self.diag.error(expr.span, f"类型 {base_ty} 没有字段 {expr.field}")
@@ -244,8 +350,47 @@ class Checker:
             self.diag.error(expr.span, f"结构体 {base_ty.name} 没有字段 {expr.field}")
             expr.inferred_type = str(I32)
             return I32
+        meta = self._field_meta(base_ty.name, expr.field)
+        if meta is not None:
+            visibility, owner = meta
+            if visibility == "private" and self.current_class != owner:
+                self.diag.error(expr.span, f"field {expr.field} is private in {owner}")
         expr.inferred_type = str(field_ty)
         return field_ty
+
+    def _field_meta(self, class_name: str, field: str) -> tuple[str, str] | None:
+        cur: str | None = class_name
+        while cur:
+            meta = self.class_field_meta.get((cur, field))
+            if meta is not None:
+                return meta
+            cur = self.class_bases.get(cur)
+        return None
+
+    def _lookup_method(self, class_name: str, method: str) -> str | None:
+        cur: str | None = class_name
+        while cur:
+            found = self.class_methods.get(cur, {}).get(method)
+            if found:
+                return found
+            cur = self.class_bases.get(cur)
+        return None
+
+    def _virtual_method_names(self, class_name: str) -> set[str]:
+        out: set[str] = set()
+        cur: str | None = class_name
+        while cur:
+            out.update(self.virtual_methods.get(cur, {}).keys())
+            cur = self.class_bases.get(cur)
+        return out
+
+    def _is_subclass(self, child: str, parent: str) -> bool:
+        cur = self.class_bases.get(child)
+        while cur:
+            if cur == parent:
+                return True
+            cur = self.class_bases.get(cur)
+        return False
 
     def _check_array_lit(self, expr: ast.ArrayLit, owner_fn: ast.Function) -> Type:
         if not expr.items:
@@ -347,6 +492,29 @@ class Checker:
         return I32
 
     def _check_call(self, expr: ast.CallExpr, owner_fn: ast.Function) -> Type:
+        if isinstance(expr.callee, ast.FieldAccess) and expr.callee.base:
+            base_ty = self._check_expr(expr.callee.base, owner_fn)
+            static_ty = base_ty.params[0] if base_ty.name in {"Ptr", "ConstPtr"} and base_ty.params else base_ty
+            target = self._lookup_method(static_ty.name, expr.callee.field)
+            if target is None:
+                self.diag.error(expr.span, f"undefined method {static_ty.name}.{expr.callee.field}")
+                expr.inferred_type = str(I32)
+                return I32
+            sig = self.functions[target]
+            expr.resolved_callee = target
+            if expr.callee.field in self._virtual_method_names(static_ty.name):
+                expr.virtual_method = expr.callee.field
+                expr.static_type = static_ty.name
+            if len(sig.params) != len(expr.args) + 1:
+                self.diag.error(expr.span, f"method {expr.callee.field} expects {max(0, len(sig.params) - 1)} arguments")
+            if sig.params and sig.params[0] != static_ty and not self._is_subclass(static_ty.name, sig.params[0].name):
+                self.diag.error(expr.callee.base.span, f"method self expects {sig.params[0]}, got {static_ty}")
+            for i, arg in enumerate(expr.args, start=1):
+                aty = self._check_expr(arg, owner_fn)
+                if i < len(sig.params) and aty != sig.params[i]:
+                    self.diag.error(arg.span, f"method argument expects {sig.params[i]}, got {aty}")
+            expr.inferred_type = str(sig.ret)
+            return sig.ret
         if not isinstance(expr.callee, ast.NameExpr):
             self.diag.error(expr.span, "只支持直接函数调用")
             expr.inferred_type = str(I32)
@@ -408,6 +576,56 @@ class Checker:
             if len(arg_types) == 2 and (arg_types[0] != arg_types[1] or arg_types[0] not in {I32, F64, STR}):
                 self.diag.error(expr.span, f"{callee} expects two values of the same i32, f64, or str type")
                 ret = I32
+            expr.inferred_type = str(ret)
+            return ret
+        if callee == "ptr_get":
+            if len(expr.args) != 1:
+                self.diag.error(expr.span, "ptr_get expects 1 argument")
+            arg_types = [self._check_expr(arg, owner_fn) for arg in expr.args]
+            if arg_types and arg_types[0].name in {"Ptr", "ConstPtr"} and arg_types[0].params:
+                ret = arg_types[0].params[0]
+            else:
+                self.diag.error(expr.span, f"ptr_get expects Ptr[T] or ConstPtr[T]")
+                ret = I32
+            expr.inferred_type = str(ret)
+            return ret
+        if callee == "ptr_set":
+            arg_types = [self._check_expr(arg, owner_fn) for arg in expr.args]
+            if len(arg_types) != 2:
+                self.diag.error(expr.span, "ptr_set expects 2 arguments")
+            elif arg_types[0].name == "ConstPtr":
+                self.diag.error(expr.args[0].span, "cannot write through ConstPtr[T]")
+            elif arg_types[0].name != "Ptr" or not arg_types[0].params:
+                self.diag.error(expr.args[0].span, "ptr_set expects Ptr[T]")
+            elif arg_types[0].params[0] != arg_types[1]:
+                self.diag.error(expr.args[1].span, f"ptr_set expects {arg_types[0].params[0]}, got {arg_types[1]}")
+            expr.inferred_type = str(VOID)
+            return VOID
+        if callee == "const_ptr_new":
+            if len(expr.args) != 1:
+                self.diag.error(expr.span, "const_ptr_new expects 1 argument")
+            arg_types = [self._check_expr(arg, owner_fn) for arg in expr.args]
+            ret = const_ptr(arg_types[0] if arg_types else I32)
+            expr.inferred_type = str(ret)
+            return ret
+        if callee == "call":
+            if not expr.args:
+                self.diag.error(expr.span, "call expects a function pointer and arguments")
+                expr.inferred_type = str(I32)
+                return I32
+            fn_ty = self._check_expr(expr.args[0], owner_fn)
+            if fn_ty.name != "Func" or not fn_ty.params:
+                self.diag.error(expr.args[0].span, f"call expects Func[..., R], got {fn_ty}")
+                expr.inferred_type = str(I32)
+                return I32
+            expected_args = list(fn_ty.params[:-1])
+            ret = fn_ty.params[-1]
+            for idx, arg in enumerate(expr.args[1:]):
+                got = self._check_expr(arg, owner_fn)
+                if idx < len(expected_args) and got != expected_args[idx]:
+                    self.diag.error(arg.span, f"call argument expects {expected_args[idx]}, got {got}")
+            if len(expr.args) - 1 != len(expected_args):
+                self.diag.error(expr.span, f"call expects {len(expected_args)} call arguments")
             expr.inferred_type = str(ret)
             return ret
         sig = self.functions.get(callee)
@@ -472,6 +690,12 @@ class Checker:
             return self._check_expr(target, owner_fn)
         if isinstance(target, ast.IndexExpr):
             return self._check_expr(target, owner_fn)
+        if isinstance(target, ast.UnaryExpr) and target.op == "*":
+            if target.rhs:
+                rhs = self._check_expr(target.rhs, owner_fn)
+                if rhs.name == "ConstPtr":
+                    self.diag.error(target.span, "cannot write through ConstPtr[T]")
+            return self._check_expr(target, owner_fn)
         self.diag.error(target.span, "赋值左侧必须是变量或字段访问")
         return I32
 
@@ -506,6 +730,13 @@ class Checker:
             return channel(self._resolve_type(tref.params[0], generics))
         if tref.name == "Array" and tref.params:
             return array(self._resolve_type(tref.params[0], generics))
+        if tref.name == "Ptr" and tref.params:
+            return ptr(self._resolve_type(tref.params[0], generics))
+        if tref.name == "ConstPtr" and tref.params:
+            return const_ptr(self._resolve_type(tref.params[0], generics))
+        if tref.name == "Func" and tref.params:
+            resolved = [self._resolve_type(p, generics) for p in tref.params]
+            return func(resolved[:-1], resolved[-1]) if resolved else func([], I32)
         if tref.params:
             return Type(tref.name, tuple(self._resolve_type(p, generics) for p in tref.params))
         return BUILTINS.get(tref.name, Type(tref.name))

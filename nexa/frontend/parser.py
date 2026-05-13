@@ -37,6 +37,8 @@ class Parser:
                 items.append(self._parse_macro())
             elif self._match(TokenKind.STRUCT):
                 items.append(self._parse_struct())
+            elif self._match(TokenKind.CLASS):
+                items.append(self._parse_class())
             elif self._match(TokenKind.IMPORT):
                 items.append(self._parse_import())
             else:
@@ -62,7 +64,87 @@ class Parser:
         self._expect(TokenKind.RBRACE, "struct 缺少 }")
         return ast.StructDef(name.span, name.lexeme, fields)
 
-    def _parse_fn(self) -> ast.Function:
+    def _parse_visibility(self) -> str:
+        if self._match(TokenKind.PRIVATE):
+            return "private"
+        if self._match(TokenKind.PUBLIC):
+            return "public"
+        return "public"
+
+    def _parse_class(self) -> ast.ClassDef:
+        name = self._expect(TokenKind.IDENT, "class expects a name")
+        base: str | None = None
+        if self._match(TokenKind.EXTENDS):
+            base = self._expect(TokenKind.IDENT, "extends expects a base class name").lexeme
+        self._expect(TokenKind.LBRACE, "class expects {")
+        fields: list[ast.Field] = []
+        methods: list[ast.Function] = []
+        while not self._at(TokenKind.RBRACE) and not self._at(TokenKind.EOF):
+            visibility = self._parse_visibility()
+            is_virtual = self._match(TokenKind.VIRTUAL)
+            is_override = self._match(TokenKind.OVERRIDE)
+            if self._match(TokenKind.CONSTRUCTOR):
+                methods.append(self._parse_special_method(name.lexeme, "constructor", name.lexeme, visibility, is_virtual, is_override))
+                continue
+            if self._match(TokenKind.DESTRUCTOR):
+                methods.append(self._parse_special_method(name.lexeme, "destructor", name.lexeme, visibility, is_virtual, is_override))
+                continue
+            if self._match(TokenKind.FN):
+                method = self._parse_fn(owner_class=name.lexeme, visibility=visibility)
+                method.is_virtual = is_virtual
+                method.is_override = is_override
+                method.name = f"{name.lexeme}__{method.name}"
+                if not method.params or method.params[0].name != "self":
+                    method.params.insert(0, ast.Param(name.span, "self", ast.TypeRef(name.span, name.lexeme)))
+                methods.append(method)
+                continue
+            field_name = self._expect(TokenKind.IDENT, "class expects a field or method")
+            self._expect(TokenKind.COLON, "class field expects a type")
+            field_ty = self._parse_type_ref()
+            fields.append(ast.Field(field_name.span, field_name.lexeme, field_ty, visibility, name.lexeme))
+            if not self._match(TokenKind.COMMA):
+                self._match(TokenKind.SEMI)
+        self._expect(TokenKind.RBRACE, "class expects }")
+        return ast.ClassDef(name.span, name.lexeme, fields, methods, base)
+
+    def _parse_special_method(
+        self,
+        class_name: str,
+        kind: str,
+        owner_class: str,
+        visibility: str,
+        is_virtual: bool,
+        is_override: bool,
+    ) -> ast.Function:
+        start = self._peek(-1).span
+        self._expect(TokenKind.LPAREN, f"{kind} expects (")
+        params: list[ast.Param] = [ast.Param(start, "self", ast.TypeRef(start, class_name))]
+        if not self._at(TokenKind.RPAREN):
+            while True:
+                p_name = self._expect(TokenKind.IDENT, f"{kind} expects parameter name")
+                self._expect(TokenKind.COLON, f"{kind} parameter expects type")
+                p_ty = self._parse_type_ref()
+                params.append(ast.Param(p_name.span, p_name.lexeme, p_ty))
+                if not self._match(TokenKind.COMMA):
+                    break
+        self._expect(TokenKind.RPAREN, f"{kind} expects )")
+        body = self._parse_block()
+        name = f"{class_name}__{'__init' if kind == 'constructor' else '__drop'}"
+        return ast.Function(
+            start,
+            name,
+            params,
+            ast.TypeRef(start, "void"),
+            body,
+            owner_class=owner_class,
+            visibility=visibility,
+            is_virtual=is_virtual,
+            is_override=is_override,
+            is_constructor=(kind == "constructor"),
+            is_destructor=(kind == "destructor"),
+        )
+
+    def _parse_fn(self, owner_class: str | None = None, visibility: str = "public") -> ast.Function:
         name = self._expect(TokenKind.IDENT, "期望函数名")
         generics: list[str] = []
         bounds: dict[str, list[str]] = {}
@@ -94,7 +176,7 @@ class Parser:
         if self._match(TokenKind.ARROW):
             ret = self._parse_type_ref()
         body = self._parse_block()
-        return ast.Function(name.span, name.lexeme, params, ret, body, generics, bounds, bool(generics))
+        return ast.Function(name.span, name.lexeme, params, ret, body, generics, bounds, bool(generics), owner_class, visibility)
 
     def _parse_macro(self) -> ast.Macro:
         name = self._expect(TokenKind.IDENT, "期望宏名")
@@ -137,6 +219,11 @@ class Parser:
             v = None if self._at(TokenKind.SEMI) else self._parse_expr()
             self._expect(TokenKind.SEMI, "缺少分号", fix="在 return 语句后插入 ';'")
             return ast.ReturnStmt(start, v)
+        if self._match(TokenKind.DELETE):
+            start = self._peek(-1).span
+            v = self._parse_expr()
+            self._expect(TokenKind.SEMI, "delete expects ;")
+            return ast.DeleteStmt(start, v)
         if self._match(TokenKind.IF):
             start = self._peek(-1).span
             cond = self._parse_expr()
@@ -157,7 +244,7 @@ class Parser:
             return self._parse_block()
 
         e = self._parse_expr()
-        if isinstance(e, (ast.NameExpr, ast.FieldAccess, ast.IndexExpr)) and self._match(TokenKind.EQ):
+        if isinstance(e, (ast.NameExpr, ast.FieldAccess, ast.IndexExpr, ast.UnaryExpr)) and self._match(TokenKind.EQ):
             rhs = self._parse_expr()
             self._expect(TokenKind.SEMI, "缺少分号", fix="在赋值语句后插入 ';'")
             return ast.AssignStmt(e.span, e, rhs)
@@ -215,7 +302,18 @@ class Parser:
             lhs = ast.NameExpr(tok.span, None, tok.lexeme)
         elif tok.kind == TokenKind.SELECT:
             lhs = self._parse_select_expr(tok.span)
-        elif tok.kind in (TokenKind.NOT, TokenKind.MINUS):
+        elif tok.kind == TokenKind.NEW:
+            ty = self._parse_type_ref()
+            self._expect(TokenKind.LPAREN, "new expects (")
+            args: list[ast.Expr] = []
+            if not self._at(TokenKind.RPAREN):
+                while True:
+                    args.append(self._parse_expr())
+                    if not self._match(TokenKind.COMMA):
+                        break
+            self._expect(TokenKind.RPAREN, "new expects )")
+            lhs = ast.NewExpr(tok.span, None, ty, args)
+        elif tok.kind in (TokenKind.NOT, TokenKind.MINUS, TokenKind.AMP, TokenKind.STAR):
             rhs = self._parse_expr(7)
             lhs = ast.UnaryExpr(tok.span, None, tok.lexeme, rhs)
         elif tok.kind == TokenKind.LPAREN:
@@ -326,7 +424,7 @@ class Parser:
             self._advance()
 
     def _sync_top(self) -> None:
-        while self._peek().kind not in {TokenKind.IMPORT, TokenKind.FN, TokenKind.MACRO, TokenKind.STRUCT, TokenKind.EOF}:
+        while self._peek().kind not in {TokenKind.IMPORT, TokenKind.FN, TokenKind.MACRO, TokenKind.STRUCT, TokenKind.CLASS, TokenKind.EOF}:
             self._advance()
 
     def _span_of(self, idx: int) -> Span:

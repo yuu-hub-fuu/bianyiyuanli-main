@@ -84,6 +84,14 @@ def _ast_dump(node: object, indent: int = 0) -> list[str]:
         for f in node.fields:
             out.append(f"{pad}  Field {f.name}: {f.type_ref.name}")
         return out
+    if isinstance(node, ast.ClassDef):
+        suffix = f" extends {node.base}" if node.base else ""
+        out = [f"{pad}Class {node.name}{suffix}"]
+        for f in node.fields:
+            out.append(f"{pad}  {f.visibility} Field {f.name}: {f.type_ref.name}")
+        for m in node.methods:
+            out.extend(_ast_dump(m, indent + 1))
+        return out
     if isinstance(node, ast.ImportDecl):
         return [f'{pad}Import "{node.path}"']
     if isinstance(node, ast.Block):

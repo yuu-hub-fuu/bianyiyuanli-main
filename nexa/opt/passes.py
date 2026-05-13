@@ -21,6 +21,10 @@ _CRITICAL_KINDS = {
     HIRKind.SPAWN,
     HIRKind.FIELD_SET,
     HIRKind.ARRAY_SET,
+    HIRKind.PTR_STORE,
+    HIRKind.CALL_PTR,
+    HIRKind.CALL_VIRTUAL,
+    HIRKind.DELETE_OBJECT,
 }
 
 
@@ -102,7 +106,9 @@ def propagate_constants_and_copies(fn: HIRFunction) -> None:
             aliases.clear()
             constants.clear()
 
-        if ins.kind == HIRKind.MOVE and ins.dst and not (ins.dst.startswith("t") or ins.dst.startswith("__inl")):
+        if ins.kind == HIRKind.PTR_ADDR:
+            args = list(ins.args)
+        elif ins.kind == HIRKind.MOVE and ins.dst and not (ins.dst.startswith("t") or ins.dst.startswith("__inl")):
             args = [_resolve_alias(arg, aliases) if _is_name(arg) else arg for arg in ins.args]
         else:
             args = _rewrite_args(ins.args, aliases, constants)
@@ -125,7 +131,7 @@ def propagate_constants_and_copies(fn: HIRFunction) -> None:
             _clobber(new.dst, aliases, constants)
 
         out.append(new)
-        if ins.kind in _CONTROL_KINDS or ins.kind in {HIRKind.CALL, HIRKind.ARRAY_SET, HIRKind.FIELD_SET, HIRKind.SPAWN}:
+        if ins.kind in _CONTROL_KINDS or ins.kind in {HIRKind.CALL, HIRKind.CALL_PTR, HIRKind.CALL_VIRTUAL, HIRKind.DELETE_OBJECT, HIRKind.PTR_ADDR, HIRKind.ARRAY_SET, HIRKind.FIELD_SET, HIRKind.PTR_STORE, HIRKind.SPAWN}:
             aliases.clear()
             constants.clear()
 
@@ -254,7 +260,7 @@ def common_subexpression_elimination(fn: HIRFunction) -> None:
                 exprs.pop(key, None)
 
     for ins in fn.instrs:
-        if ins.kind in _CONTROL_KINDS or ins.kind in {HIRKind.CALL, HIRKind.FIELD_SET, HIRKind.ARRAY_SET, HIRKind.SPAWN}:
+        if ins.kind in _CONTROL_KINDS or ins.kind in {HIRKind.CALL, HIRKind.CALL_PTR, HIRKind.CALL_VIRTUAL, HIRKind.DELETE_OBJECT, HIRKind.PTR_ADDR, HIRKind.FIELD_SET, HIRKind.ARRAY_SET, HIRKind.PTR_STORE, HIRKind.SPAWN}:
             exprs.clear()
             out.append(ins)
             continue

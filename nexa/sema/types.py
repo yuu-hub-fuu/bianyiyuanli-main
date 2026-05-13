@@ -38,6 +38,18 @@ def array(inner: Type) -> Type:
     return Type("Array", (inner,))
 
 
+def ptr(inner: Type) -> Type:
+    return Type("Ptr", (inner,))
+
+
+def const_ptr(inner: Type) -> Type:
+    return Type("ConstPtr", (inner,))
+
+
+def func(params: list[Type], ret: Type) -> Type:
+    return Type("Func", tuple(params + [ret]))
+
+
 def type_var(name: str) -> Type:
     return Type(f"${name}")
 

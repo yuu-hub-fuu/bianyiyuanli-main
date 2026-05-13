@@ -18,6 +18,17 @@ class TokenKind(Enum):
     ELSE = auto()
     WHILE = auto()
     STRUCT = auto()
+    CLASS = auto()
+    EXTENDS = auto()
+    PUBLIC = auto()
+    PRIVATE = auto()
+    VIRTUAL = auto()
+    OVERRIDE = auto()
+    CONSTRUCTOR = auto()
+    DESTRUCTOR = auto()
+    NEW = auto()
+    DELETE = auto()
+    CONST = auto()
     IMPORT = auto()
     MACRO = auto()
     SPAWN = auto()
@@ -38,6 +49,7 @@ class TokenKind(Enum):
     GT = auto()
     GE = auto()
     ANDAND = auto()
+    AMP = auto()
     OROR = auto()
     NOT = auto()
     LPAREN = auto()
@@ -63,6 +75,18 @@ KEYWORDS = {
     "else": TokenKind.ELSE,
     "while": TokenKind.WHILE,
     "struct": TokenKind.STRUCT,
+    "class": TokenKind.CLASS,
+    "extends": TokenKind.EXTENDS,
+    "public": TokenKind.PUBLIC,
+    "pubolic": TokenKind.PUBLIC,
+    "private": TokenKind.PRIVATE,
+    "virtual": TokenKind.VIRTUAL,
+    "override": TokenKind.OVERRIDE,
+    "constructor": TokenKind.CONSTRUCTOR,
+    "destructor": TokenKind.DESTRUCTOR,
+    "new": TokenKind.NEW,
+    "delete": TokenKind.DELETE,
+    "const": TokenKind.CONST,
     "import": TokenKind.IMPORT,
     "macro": TokenKind.MACRO,
     "spawn": TokenKind.SPAWN,

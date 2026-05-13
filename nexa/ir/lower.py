@@ -8,15 +8,57 @@ from .mir import BasicBlock, MIRFunction, MIRInstr, MIRModule
 class Lowerer:
     def __init__(self) -> None:
         self.temp_id = 0
+        self.class_ids: dict[str, int] = {}
+        self.virtual_methods: dict[str, dict[str, str]] = {}
+        self.destructors: dict[str, str] = {}
+        self.class_bases: dict[str, str | None] = {}
+        self.class_fields: dict[str, list[str]] = {}
+        self.constructors: dict[str, str] = {}
 
     def lower_module(self, module: ast.Module) -> HIRModule:
         out = HIRModule()
+        class_names = [item.name for item in module.items if isinstance(item, ast.ClassDef)]
+        self.class_ids = {name: idx + 1 for idx, name in enumerate(class_names)}
+        out.class_ids = dict(self.class_ids)
         for item in module.items:
             if isinstance(item, ast.StructDef):
                 out.struct_layouts[item.name] = [f.name for f in item.fields]
+            if isinstance(item, ast.ClassDef):
+                self.class_bases[item.name] = item.base
+                fields: list[str] = []
+                if item.base:
+                    fields.extend(out.struct_layouts.get(item.base, []))
+                elif item.name in self.class_ids:
+                    fields.append("__class_id")
+                if item.base and "__class_id" not in fields:
+                    fields.insert(0, "__class_id")
+                fields.extend(f.name for f in item.fields)
+                out.struct_layouts[item.name] = fields
+                self.class_fields[item.name] = fields
+                if item.base:
+                    self.virtual_methods[item.name] = dict(self.virtual_methods.get(item.base, {}))
+                else:
+                    self.virtual_methods[item.name] = {}
+                for method in item.methods:
+                    public = method.name.split("__", 1)[-1]
+                    if method.is_constructor:
+                        public = "__init"
+                        self.constructors[item.name] = method.name
+                    elif method.is_destructor:
+                        public = "__drop"
+                        self.destructors[item.name] = method.name
+                    if method.is_virtual or method.is_override or method.is_destructor:
+                        self.virtual_methods.setdefault(item.name, {})[public] = method.name
+        out.virtual_methods = dict(self.virtual_methods)
+        out.destructors = dict(self.destructors)
+        out.class_bases = dict(self.class_bases)
         for item in module.items:
             if isinstance(item, ast.Function) and not item.is_generic_template:
                 out.functions.append(self._lower_fn(item))
+            if isinstance(item, ast.ClassDef):
+                for method in item.methods:
+                    if not method.is_generic_template:
+                        out.functions.append(self._lower_fn(method))
         return out
 
     @staticmethod
@@ -59,6 +101,9 @@ class Lowerer:
                 base = self._lower_expr(st.target.base, hf)
                 index = self._lower_expr(st.target.index, hf)
                 hf.instrs.append(HIRInstr(HIRKind.ARRAY_SET, args=[base, index, src], ty=ty, span=(st.span.line, st.span.col)))
+            elif isinstance(st.target, ast.UnaryExpr) and st.target.op == "*" and st.target.rhs:
+                ptr_value = self._lower_expr(st.target.rhs, hf)
+                hf.instrs.append(HIRInstr(HIRKind.PTR_STORE, args=[ptr_value, src], ty=ty, span=(st.span.line, st.span.col)))
         elif isinstance(st, ast.ExprStmt):
             self._lower_expr(st.expr, hf)
         elif isinstance(st, ast.ReturnStmt):
@@ -99,6 +144,9 @@ class Lowerer:
         elif isinstance(st, ast.SpawnStmt):
             fn = self._lower_expr(st.expr, hf)
             hf.instrs.append(HIRInstr(HIRKind.SPAWN, args=[fn], ty="void"))
+        elif isinstance(st, ast.DeleteStmt):
+            obj = self._lower_expr(st.value, hf)
+            hf.instrs.append(HIRInstr(HIRKind.DELETE_OBJECT, args=[obj], ty="void", span=(st.span.line, st.span.col)))
 
     def _lower_block_value(self, block: ast.Block, hf: HIRFunction, fallback: str) -> str:
         if not block.stmts:
@@ -174,14 +222,35 @@ class Lowerer:
         if isinstance(ex, ast.StrLit):
             t = self._tmp(); hf.instrs.append(HIRInstr(HIRKind.CONST, dst=t, args=[ex.value], ty="str", span=(ex.span.line, ex.span.col))); return t
         if isinstance(ex, ast.NameExpr):
+            if ex.inferred_type and ex.inferred_type.startswith("Func["):
+                t = self._tmp()
+                hf.instrs.append(HIRInstr(HIRKind.FUNC_ADDR, dst=t, args=[ex.name], ty=ex.inferred_type, span=(ex.span.line, ex.span.col)))
+                return t
             return ex.name
         if isinstance(ex, ast.StructLit):
             args: list[str] = []
+            if ex.name in self.class_ids:
+                args.extend(["__class_id", str(self.class_ids[ex.name])])
             for field in ex.fields:
                 value = self._lower_expr(field.value, hf)
                 args.extend([field.name, value])
             t = self._tmp()
             hf.instrs.append(HIRInstr(HIRKind.STRUCT_NEW, dst=t, args=args, op=ex.name, ty=ex.inferred_type or ex.name, span=(ex.span.line, ex.span.col)))
+            return t
+        if isinstance(ex, ast.NewExpr) and ex.type_ref:
+            class_name = ex.type_ref.name
+            args: list[str] = []
+            if class_name in self.class_ids:
+                args.extend(["__class_id", str(self.class_ids[class_name])])
+            t = self._tmp()
+            hf.instrs.append(HIRInstr(HIRKind.STRUCT_NEW, dst=t, args=args, op=class_name, ty=class_name, span=(ex.span.line, ex.span.col)))
+            ctor = self.constructors.get(class_name)
+            if ctor:
+                ctor_args = [t] + [self._lower_expr(a, hf) for a in ex.args]
+                for a in ctor_args:
+                    hf.instrs.append(HIRInstr(HIRKind.ARG, args=[a], ty="void"))
+                call_tmp = self._tmp()
+                hf.instrs.append(HIRInstr(HIRKind.CALL, dst=call_tmp, op=ctor, args=[], ty="void", span=(ex.span.line, ex.span.col)))
             return t
         if isinstance(ex, ast.FieldAccess) and ex.base:
             base = self._lower_expr(ex.base, hf)
@@ -210,13 +279,60 @@ class Lowerer:
         if isinstance(ex, ast.SelectExpr):
             return self._lower_select_expr(ex, hf)
         if isinstance(ex, ast.UnaryExpr) and ex.rhs:
+            if ex.op == "&":
+                if isinstance(ex.rhs, ast.NameExpr):
+                    t = self._tmp()
+                    hf.instrs.append(HIRInstr(HIRKind.PTR_ADDR, dst=t, args=[ex.rhs.name], ty=ex.inferred_type or "Ptr[i32]", span=(ex.span.line, ex.span.col)))
+                    return t
+                value = self._lower_expr(ex.rhs, hf)
+                t = self._tmp()
+                hf.instrs.append(HIRInstr(HIRKind.PTR_ADDR, dst=t, args=[value], ty=ex.inferred_type or "Ptr[i32]", span=(ex.span.line, ex.span.col)))
+                return t
+            if ex.op == "*":
+                ptr_value = self._lower_expr(ex.rhs, hf)
+                t = self._tmp()
+                hf.instrs.append(HIRInstr(HIRKind.PTR_LOAD, dst=t, args=[ptr_value], ty=ex.inferred_type or "i32", span=(ex.span.line, ex.span.col)))
+                return t
             r = self._lower_expr(ex.rhs, hf)
             t = self._tmp(); hf.instrs.append(HIRInstr(HIRKind.UNARY, dst=t, args=[r], op=ex.op, ty=ex.inferred_type or "i32", span=(ex.span.line, ex.span.col))); return t
         if isinstance(ex, ast.BinaryExpr) and ex.lhs and ex.rhs:
             l = self._lower_expr(ex.lhs, hf); r = self._lower_expr(ex.rhs, hf)
             t = self._tmp(); hf.instrs.append(HIRInstr(HIRKind.BIN, dst=t, args=[l, r], op=ex.op, ty=ex.inferred_type or "i32", span=(ex.span.line, ex.span.col))); return t
+        if isinstance(ex, ast.CallExpr):
+            callee_name: str | None = None
+            lowered_args: list[str] = []
+            if ex.virtual_method and isinstance(ex.callee, ast.FieldAccess) and ex.callee.base:
+                lowered_args.append(self._lower_expr(ex.callee.base, hf))
+                args = lowered_args + [self._lower_expr(a, hf) for a in ex.args]
+                t = self._tmp()
+                hf.instrs.append(HIRInstr(HIRKind.CALL_VIRTUAL, dst=t, op=ex.virtual_method, args=args, ty=ex.inferred_type or "i32", span=(ex.span.line, ex.span.col)))
+                return t
+            if ex.resolved_callee and isinstance(ex.callee, ast.FieldAccess) and ex.callee.base:
+                callee_name = ex.resolved_callee
+                lowered_args.append(self._lower_expr(ex.callee.base, hf))
+            elif isinstance(ex.callee, ast.NameExpr):
+                callee_name = ex.callee.name
+            if callee_name is not None:
+                args = lowered_args + [self._lower_expr(a, hf) for a in ex.args]
+                if callee_name == "call" and args:
+                    fn_value = args[0]
+                    call_args = args[1:]
+                    for a in call_args:
+                        hf.instrs.append(HIRInstr(HIRKind.ARG, args=[a], ty="void"))
+                    t = self._tmp()
+                    hf.instrs.append(HIRInstr(HIRKind.CALL_PTR, dst=t, args=[fn_value], ty=ex.inferred_type or "i32", span=(ex.span.line, ex.span.col)))
+                    return t
+                for a in args:
+                    hf.instrs.append(HIRInstr(HIRKind.ARG, args=[a], ty="void"))
+                t = self._tmp(); hf.instrs.append(HIRInstr(HIRKind.CALL, dst=t, op=callee_name, args=[], ty=ex.inferred_type or "i32", span=(ex.span.line, ex.span.col))); return t
         if isinstance(ex, ast.CallExpr) and isinstance(ex.callee, ast.NameExpr):
             args = [self._lower_expr(a, hf) for a in ex.args]
+            if ex.callee.name == "call" and args:
+                for a in args[1:]:
+                    hf.instrs.append(HIRInstr(HIRKind.ARG, args=[a], ty="void"))
+                t = self._tmp()
+                hf.instrs.append(HIRInstr(HIRKind.CALL_PTR, dst=t, args=[args[0]], ty=ex.inferred_type or "i32", span=(ex.span.line, ex.span.col)))
+                return t
             for a in args:
                 hf.instrs.append(HIRInstr(HIRKind.ARG, args=[a], ty="void"))
             t = self._tmp(); hf.instrs.append(HIRInstr(HIRKind.CALL, dst=t, op=ex.callee.name, args=[], ty=ex.inferred_type or "i32", span=(ex.span.line, ex.span.col))); return t
@@ -225,8 +341,12 @@ class Lowerer:
 
 def hir_to_mir(hir: HIRModule) -> MIRModule:
     out = MIRModule()
-    out.struct_layouts = dict(hir.struct_layouts)
-    out.string_pool = list(hir.string_pool)
+        out.struct_layouts = dict(hir.struct_layouts)
+        out.string_pool = list(hir.string_pool)
+        out.class_ids = dict(hir.class_ids)
+        out.virtual_methods = {k: dict(v) for k, v in hir.virtual_methods.items()}
+        out.destructors = dict(hir.destructors)
+        out.class_bases = dict(hir.class_bases)
     for fn in hir.functions:
         mf = MIRFunction(fn.name)
         current = BasicBlock("entry")

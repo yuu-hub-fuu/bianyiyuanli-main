@@ -231,6 +231,70 @@ fn main() -> i32 {
     assert '12' in res.run_stdout
 
 
+def test_pointer_address_deref_heap_and_copy_run_in_vm():
+    src = '''
+fn main() -> i32 {
+  let x: i32 = 10;
+  let p: Ptr[i32] = &x;
+  *p = *p + 2;
+  let s: str = "a";
+  let ps: Ptr[str] = &s;
+  *ps = cat(*ps, "b");
+  let f: f64 = 1.5;
+  let pf: Ptr[f64] = &f;
+  *pf = *pf + 2.0;
+  let q: Ptr[i32] = ptr_new(copy(3));
+  ptr_set(q, ptr_get(q) + 4);
+  if f > 3.0 { return x + ptr_get(q) + len(s); }
+  return 0;
+}
+'''
+    res = compile_source(src, mode='full', run=True)
+    assert all(d.level != 'error' for d in res.diagnostics)
+    assert res.run_value == 21
+    assert 'PTR_ADDR' in '\n'.join(res.artifacts.tables['hir_opt'])
+    assert 'PTR_LOAD' in '\n'.join(res.artifacts.tables['hir_opt'])
+    assert 'PTR_STORE' in '\n'.join(res.artifacts.tables['hir_opt'])
+
+
+def test_class_inheritance_methods_and_private_field_run_in_vm():
+    src = '''
+class Animal {
+  public age: i32,
+  private secret: i32,
+  public fn get_secret(self: Animal) -> i32 { return self.secret; }
+}
+class Dog extends Animal {
+  public bonus: i32,
+  public fn score(self: Dog) -> i32 { return self.age + self.get_secret() + self.bonus; }
+}
+fn main() -> i32 {
+  let d: Dog = Dog { age: 2, secret: 5, bonus: 7 };
+  return d.score();
+}
+'''
+    res = compile_source(src, mode='full', run=True)
+    assert all(d.level != 'error' for d in res.diagnostics)
+    assert res.run_value == 14
+    assert 'Dog__score' in res.artifacts.asm_module
+    assert 'Animal__get_secret' in res.artifacts.asm_module
+
+
+def test_private_class_field_rejects_external_access():
+    src = '''
+class Box {
+  private secret: i32,
+  public fn reveal(self: Box) -> i32 { return self.secret; }
+}
+fn main() -> i32 {
+  let b: Box = Box { secret: 9 };
+  return b.secret;
+}
+'''
+    res = compile_source(src, mode='core')
+    assert any('private' in d.message and 'secret' in d.message for d in res.diagnostics)
+
+
 def test_len_rejects_non_array_argument():
     src = 'fn main() -> i32 { return len(1); }'
     res = compile_source(src, mode='core')

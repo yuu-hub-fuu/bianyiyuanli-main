@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import random
 import time
 from dataclasses import dataclass
@@ -26,6 +27,10 @@ class VMFrame:
 class HIRVM:
     def __init__(self, module: HIRModule) -> None:
         self.module = {f.name: f for f in module.functions}
+        self.virtual_methods = module.virtual_methods
+        self.destructors = module.destructors
+        self.class_bases = module.class_bases
+        self.class_by_id = {v: k for k, v in module.class_ids.items()}
         self.output: list[str] = []
 
     def run(self, entry: str = "main") -> VMResult:
@@ -116,6 +121,24 @@ class HIRVM:
             return args[0] if args[0] <= args[1] else args[1]
         if name == "max":
             return args[0] if args[0] >= args[1] else args[1]
+        if name == "ptr_new":
+            return {"value": args[0]}
+        if name == "ptr_get":
+            ref = args[0]
+            if isinstance(ref, dict) and "env" in ref:
+                return ref["env"][ref["name"]]
+            return ref["value"]
+        if name == "ptr_set":
+            ref = args[0]
+            if isinstance(ref, dict) and "env" in ref:
+                ref["env"][ref["name"]] = args[1]
+            else:
+                ref["value"] = args[1]
+            return 0
+        if name in {"copy", "clone", "shallow_copy"}:
+            return copy.copy(args[0])
+        if name == "deep_copy":
+            return copy.deepcopy(args[0])
         if name == "chan":
             return rt_core.rt_chan_new(int(args[0]))
         if name == "send":
@@ -171,13 +194,19 @@ class HIRVM:
                 ip += 1; continue
             if op == HIRKind.CONST and ins.dst and ins.args:
                 env[ins.dst] = float(ins.args[0]) if ins.ty == "f64" else val(ins.args[0])
+            elif op == HIRKind.FUNC_ADDR and ins.dst and ins.args:
+                env[ins.dst] = ins.args[0]
             elif op == HIRKind.MOVE and ins.dst and ins.args:
                 env[ins.dst] = val(ins.args[0])
             elif op == HIRKind.STRUCT_NEW and ins.dst:
-                obj: dict[str, object] = {"__struct__": ins.op or ins.ty}
+                obj: dict[str, object] = {"__struct__": ins.op or ins.ty, "__class__": ins.op or ins.ty, "__deleted__": 0}
                 for i in range(0, len(ins.args), 2):
                     if i + 1 < len(ins.args):
-                        obj[ins.args[i]] = val(ins.args[i + 1])
+                        key = ins.args[i]
+                        got = val(ins.args[i + 1])
+                        obj[key] = got
+                        if key == "__class_id":
+                            obj["__class__"] = self.class_by_id.get(int(got), obj["__class__"])
                 env[ins.dst] = obj
             elif op == HIRKind.FIELD_GET and ins.dst and ins.args and ins.op:
                 obj = val(ins.args[0])
@@ -205,6 +234,24 @@ class HIRVM:
                 if not isinstance(arr, list):
                     raise RuntimeError(f"VM: index assignment on non-array value {arr!r}")
                 arr[int(val(ins.args[1]))] = val(ins.args[2])
+            elif op == HIRKind.PTR_ADDR and ins.dst and ins.args:
+                env[ins.dst] = {"env": env, "name": ins.args[0]}
+            elif op == HIRKind.PTR_LOAD and ins.dst and ins.args:
+                ref = val(ins.args[0])
+                if isinstance(ref, dict) and "env" in ref:
+                    env[ins.dst] = ref["env"][ref["name"]]
+                elif isinstance(ref, dict) and "value" in ref:
+                    env[ins.dst] = ref["value"]
+                else:
+                    raise RuntimeError(f"VM: dereference on non-pointer value {ref!r}")
+            elif op == HIRKind.PTR_STORE and len(ins.args) == 2:
+                ref = val(ins.args[0])
+                if isinstance(ref, dict) and "env" in ref:
+                    ref["env"][ref["name"]] = val(ins.args[1])
+                elif isinstance(ref, dict) and "value" in ref:
+                    ref["value"] = val(ins.args[1])
+                else:
+                    raise RuntimeError(f"VM: pointer assignment on non-pointer value {ref!r}")
             elif op == HIRKind.UNARY and ins.dst and ins.args:
                 r = num(val(ins.args[0]))
                 env[ins.dst] = -r if ins.op == "-" else (0 if r else 1)
@@ -236,6 +283,27 @@ class HIRVM:
                 pending_args = []
                 if ins.dst:
                     env[ins.dst] = ret
+            elif op == HIRKind.CALL_PTR and ins.dst and ins.args:
+                fn_value = val(ins.args[0])
+                if not isinstance(fn_value, str):
+                    raise RuntimeError(f"VM: function pointer expected, got {fn_value!r}")
+                ret = self._call(fn_value, pending_args, trace, max_steps)
+                pending_args = []
+                env[ins.dst] = ret
+            elif op == HIRKind.CALL_VIRTUAL and ins.op:
+                call_args = [val(a) for a in ins.args]
+                obj = call_args[0] if call_args else None
+                class_name = obj.get("__class__") if isinstance(obj, dict) else None
+                target = self._resolve_virtual(str(class_name), ins.op)
+                ret = self._call(target, call_args, trace, max_steps)
+                if ins.dst:
+                    env[ins.dst] = ret
+            elif op == HIRKind.DELETE_OBJECT and ins.args:
+                obj = val(ins.args[0])
+                if isinstance(obj, dict) and not obj.get("__deleted__"):
+                    for target in self._destructor_chain(str(obj.get("__class__"))):
+                        self._call(target, [obj], trace, max_steps)
+                    obj["__deleted__"] = 1
             elif op == HIRKind.BRANCH_TRUE and ins.target and ins.args:
                 if int(val(ins.args[0])) != 0:
                     ip = labels[ins.target]
@@ -252,6 +320,25 @@ class HIRVM:
                 return val(ins.args[0] if ins.args else None)
             ip += 1
         return 0
+
+    def _resolve_virtual(self, class_name: str, method: str) -> str:
+        cur: str | None = class_name
+        while cur:
+            found = self.virtual_methods.get(cur, {}).get(method)
+            if found:
+                return found
+            cur = self.class_bases.get(cur)
+        raise RuntimeError(f"VM: virtual method {class_name}.{method} not found")
+
+    def _destructor_chain(self, class_name: str) -> list[str]:
+        out: list[str] = []
+        cur: str | None = class_name
+        while cur:
+            found = self.destructors.get(cur)
+            if found:
+                out.append(found)
+            cur = self.class_bases.get(cur)
+        return out
 
 
 class VMDebugger:

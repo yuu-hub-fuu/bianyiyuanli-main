@@ -133,6 +133,7 @@ class Lexer:
             "+": TokenKind.PLUS,
             "-": TokenKind.MINUS,
             "*": TokenKind.STAR,
+            "&": TokenKind.AMP,
             "/": TokenKind.SLASH,
             "%": TokenKind.PERCENT,
             "=": TokenKind.EQ,

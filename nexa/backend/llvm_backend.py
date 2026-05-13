@@ -31,7 +31,7 @@ def validate_llvm_subset(module: HIRModule) -> tuple[bool, str]:
 
 
 def _slot_type(ty: str) -> str:
-    if ty in {"str", "Chan"} or ty.startswith("Chan"):
+    if ty in {"str", "Chan"} or ty.startswith("Chan") or ty.startswith("Ptr"):
         return "i8*"
     if ty == "f64":
         return "double"
@@ -101,6 +101,15 @@ def emit_llvm_ir(module: HIRModule) -> str:
         "declare i32 @rt_to_i32_str(i8*)",
         "declare i8* @rt_min_str(i8*, i8*)",
         "declare i8* @rt_max_str(i8*, i8*)",
+        "declare i8* @rt_ptr_new_i32(i32)",
+        "declare i8* @rt_ptr_new_f64(double)",
+        "declare i8* @rt_ptr_new_ptr(i8*)",
+        "declare i32 @rt_ptr_get_i32(i8*)",
+        "declare double @rt_ptr_get_f64(i8*)",
+        "declare i8* @rt_ptr_get_ptr(i8*)",
+        "declare void @rt_ptr_set_i32(i8*, i32)",
+        "declare void @rt_ptr_set_f64(i8*, double)",
+        "declare void @rt_ptr_set_ptr(i8*, i8*)",
         "declare i32 @rt_rand()",
         "declare void @rt_srand(i32)",
         "declare i32 @rt_rand_range(i32, i32)",
@@ -262,6 +271,33 @@ def emit_llvm_ir(module: HIRModule) -> str:
                     store(ins.dst, _Value(name, "i32"), lines)
                 elif ins.kind == HIRKind.MOVE and ins.dst and ins.args:
                     store(ins.dst, load(ins.args[0], lines, ins.dst), lines)
+                elif ins.kind == HIRKind.PTR_ADDR and ins.dst and ins.args:
+                    src = ins.args[0]
+                    src_ty = slot_types.get(src, "i32")
+                    name = fresh(ins.dst)
+                    lines.append(f"  {name} = bitcast {src_ty}* %slot_{src} to i8*")
+                    store(ins.dst, _Value(name, "i8*"), lines)
+                elif ins.kind == HIRKind.PTR_LOAD and ins.dst and ins.args:
+                    p = load(ins.args[0], lines, ins.dst)
+                    name = fresh(ins.dst)
+                    if slot_types.get(ins.dst) == "double":
+                        lines.append(f"  {name} = call double @rt_ptr_get_f64(i8* {p.text})")
+                        store(ins.dst, _Value(name, "double"), lines)
+                    elif slot_types.get(ins.dst) == "i8*":
+                        lines.append(f"  {name} = call i8* @rt_ptr_get_ptr(i8* {p.text})")
+                        store(ins.dst, _Value(name, "i8*"), lines)
+                    else:
+                        lines.append(f"  {name} = call i32 @rt_ptr_get_i32(i8* {p.text})")
+                        store(ins.dst, _Value(name, "i32"), lines)
+                elif ins.kind == HIRKind.PTR_STORE and len(ins.args) == 2:
+                    p = load(ins.args[0], lines, "ptr_store")
+                    v = load(ins.args[1], lines, "ptr_store_value")
+                    if v.ty == "double":
+                        lines.append(f"  call void @rt_ptr_set_f64(i8* {p.text}, double {v.text})")
+                    elif v.ty == "i8*":
+                        lines.append(f"  call void @rt_ptr_set_ptr(i8* {p.text}, i8* {v.text})")
+                    else:
+                        lines.append(f"  call void @rt_ptr_set_i32(i8* {p.text}, i32 {as_i32(v, lines, 'ptr_store')})")
                 elif ins.kind == HIRKind.ARG and ins.args:
                     arg_stack.append(load(ins.args[0], lines, "arg"))
                 elif ins.kind == HIRKind.CALL and ins.op:
@@ -469,6 +505,52 @@ def emit_llvm_ir(module: HIRModule) -> str:
                             name = fresh(ins.dst)
                             lines.append(f"  {name} = call i32 @rt_rand_range(i32 {lo}, i32 {hi})")
                             store(ins.dst, _Value(name, "i32"), lines)
+                    elif ins.op == "ptr_new":
+                        arg = call_args[0] if call_args else _Value("0", "i32")
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            if arg.ty == "double":
+                                lines.append(f"  {name} = call i8* @rt_ptr_new_f64(double {arg.text})")
+                            elif arg.ty == "i8*":
+                                lines.append(f"  {name} = call i8* @rt_ptr_new_ptr(i8* {arg.text})")
+                            else:
+                                lines.append(f"  {name} = call i8* @rt_ptr_new_i32(i32 {as_i32(arg, lines, ins.dst)})")
+                            store(ins.dst, _Value(name, "i8*"), lines)
+                    elif ins.op == "ptr_get":
+                        arg = call_args[0] if call_args else _Value("null", "i8*")
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            if slot_types.get(ins.dst) == "double":
+                                lines.append(f"  {name} = call double @rt_ptr_get_f64(i8* {arg.text})")
+                                store(ins.dst, _Value(name, "double"), lines)
+                            elif slot_types.get(ins.dst) == "i8*":
+                                lines.append(f"  {name} = call i8* @rt_ptr_get_ptr(i8* {arg.text})")
+                                store(ins.dst, _Value(name, "i8*"), lines)
+                            else:
+                                lines.append(f"  {name} = call i32 @rt_ptr_get_i32(i8* {arg.text})")
+                                store(ins.dst, _Value(name, "i32"), lines)
+                    elif ins.op == "ptr_set":
+                        p = call_args[0] if call_args else _Value("null", "i8*")
+                        v = call_args[1] if len(call_args) > 1 else _Value("0", "i32")
+                        if v.ty == "double":
+                            lines.append(f"  call void @rt_ptr_set_f64(i8* {p.text}, double {v.text})")
+                        elif v.ty == "i8*":
+                            lines.append(f"  call void @rt_ptr_set_ptr(i8* {p.text}, i8* {v.text})")
+                        else:
+                            lines.append(f"  call void @rt_ptr_set_i32(i8* {p.text}, i32 {as_i32(v, lines, ins.dst or 'ptr_set')})")
+                        if ins.dst:
+                            name = fresh(ins.dst)
+                            lines.append(f"  {name} = add i32 0, 0")
+                            store(ins.dst, _Value(name, "i32"), lines)
+                    elif ins.op in {"copy", "clone", "shallow_copy", "deep_copy"}:
+                        arg = call_args[0] if call_args else _Value("0", "i32")
+                        if ins.dst:
+                            if arg.ty == "i8*":
+                                name = fresh(ins.dst)
+                                lines.append(f"  {name} = call i8* @rt_str_clone(i8* {arg.text})")
+                                store(ins.dst, _Value(name, "i8*"), lines)
+                            else:
+                                store(ins.dst, arg, lines)
                     else:
                         args = ", ".join(f"i32 {as_i32(arg, lines, ins.dst or ins.op)}" for arg in call_args)
                         if ins.dst:

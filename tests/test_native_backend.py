@@ -147,6 +147,41 @@ fn main() -> i32 {
     assert "nx_str_remove" in res.build.asm_text
 
 
+def test_native_oop_inheritance_and_pointers(tmp_path: Path):
+    src = """
+class Animal {
+    public age: i32,
+    private secret: i32,
+    public fn get_secret(self: Animal) -> i32 { return self.secret; }
+}
+class Dog extends Animal {
+    public bonus: i32,
+    public fn score(self: Dog) -> i32 { return self.age + self.get_secret() + self.bonus; }
+}
+fn main() -> i32 {
+    let d: Dog = Dog { age: 2, secret: 5, bonus: 7 };
+    let x: i32 = d.score();
+    let p: Ptr[i32] = &x;
+    *p = *p + 3;
+    let s: str = "a";
+    let ps: Ptr[str] = &s;
+    *ps = cat(*ps, "b");
+    let f: f64 = 1.5;
+    let pf: Ptr[f64] = &f;
+    *pf = *pf + 2.0;
+    let q: Ptr[i32] = ptr_new(4);
+    ptr_set(q, ptr_get(q) + 1);
+    if f > 3.0 { return x + ptr_get(q) + len(s); }
+    return 0;
+}
+"""
+    res = _compile_and_run(src, tmp_path, "oop_ptr")
+    assert res.exe_exit_code == 24
+    assert "nx_Dog__score" in res.build.asm_text
+    assert "nx_Animal__get_secret" in res.build.asm_text
+    assert "nx_ptr_new_i64" in res.build.asm_text
+
+
 def test_native_imported_function_call(tmp_path: Path):
     lib = tmp_path / "math.nx"
     lib.write_text("fn add(a: i32, b: i32) -> i32 { return a + b; }", encoding="utf-8")
