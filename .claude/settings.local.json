@@ -15,7 +15,15 @@
       "Bash(python nexa_cli.py out/smoke3.nx --build --run-exe)",
       "Bash(python -m pytest tests/ -x --tb=short)",
       "Bash(python -m pytest tests/ --tb=short --basetemp=\"d:/下载/bianyiyuanli-main/pytest-cache-files-run\")",
-      "Bash(python -m pytest tests/test_native_backend.py -v --basetemp=\"d:/下载/bianyiyuanli-main/pytest-cache-files-run\")"
+      "Bash(python -m pytest tests/test_native_backend.py -v --basetemp=\"d:/下载/bianyiyuanli-main/pytest-cache-files-run\")",
+      "Bash(cd \"d:\\\\下载\\\\bianyiyuanli-main\" && cp nexa/ide/app.py nexa/ide/app_backup.py && echo \"备份完成\")",
+      "Bash(python -m py_compile nexa/ide/app.py)",
+      "Bash(python -m py_compile nexa/report/html_report.py)",
+      "Bash(timeout 5 python -c \"from nexa.ide.app import NexaStudio; print\\('Import successful'\\)\")",
+      "Bash(python)"
+    ],
+    "additionalDirectories": [
+      "d:\\下载\\bianyiyuanli-main\\nexa\\ide"
     ]
   }
 }

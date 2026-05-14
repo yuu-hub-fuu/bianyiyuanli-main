@@ -20,40 +20,29 @@ except Exception:  # noqa: BLE001
     ImageTk = None
 
 
-# ── Colour palette (VS Code Dark+ - Modern) ────────────────────────────────
-BG       = "#1e1e1e"      # 主背景
-PANEL    = "#252526"      # 一级面板
-PANEL_2  = "#2d2d30"      # 二级面板（活跃）
-PANEL_3  = "#3c3c3c"      # 三级面板（不活跃/悬停）
-TAB_ACTIVE = "#1e1e1e"    # 活动标签
-BORDER   = "#3c3c3c"      # 边框
-FG       = "#e0e0e0"      # 前景文字（更亮）
-FG_DIM   = "#858585"      # 暗文字
-BLUE     = "#4db8ff"      # 主蓝色（更亮）
-GREEN    = "#52d97f"      # 主绿色（更亮）
-YELLOW   = "#dcdcaa"      # 黄色
-ORANGE   = "#ff9966"      # 橙色（更亮）
-RED      = "#ff5555"      # 红色（更亮）
-PURPLE   = "#d99dff"      # 紫色（更亮）
-ACCENT   = "#0078d4"      # 强调色
-ACCENT_H = "#1f8ad4"      # 强调色（悬停）
-SEL_BG   = "#264f78"      # 选择背景
-FIND_BG  = "#2d2d30"      # 查找栏背景
+# ── Colour palette (VS Code Dark+) ──────────────────────────────────────────
+BG       = "#1e1e1e"
+PANEL    = "#252526"
+PANEL_2  = "#2d2d30"
+TAB_ACTIVE = "#1e1e1e"
+BORDER   = "#3c3c3c"
+FG       = "#d4d4d4"
+FG_DIM   = "#858585"
+BLUE     = "#569cd6"
+GREEN    = "#4ec9b0"
+YELLOW   = "#dcdcaa"
+ORANGE   = "#ce9178"
+RED      = "#f44747"
+PURPLE   = "#c586c0"
+ACCENT   = "#0078d4"
+ACCENT_H = "#1f8ad4"
+SEL_BG   = "#264f78"
+FIND_BG  = "#2d2d30"
 
 FONT_CODE_FALLBACK = ("Consolas", 11)
 FONT_UI  = ("Segoe UI", 10)
 
 OUTPUT_ORDER = ["Tokens", "AST", "Symbols", "HIR", "CFG", "ASM", "LLVM", "Timeline"]
-OUTPUT_ICONS = {
-    "Tokens":   "🔤",
-    "AST":      "🌳",
-    "Symbols":  "📋",
-    "HIR":      "📝",
-    "CFG":      "🔀",
-    "ASM":      "⚡",
-    "LLVM":     "🔷",
-    "Timeline": "⏱",
-}
 BOTTOM_TABS  = ["Problems", "OutputLog", "Run", "Trace"]
 
 LANG = {
@@ -153,21 +142,6 @@ LANG = {
         "mi_run_trace": "运行并跟踪",
         "mi_shortcuts": "快捷键…",
         "mi_about":     "关于 Nexa Studio",
-        # git panel
-        "source_control": "源代码管理",
-        "git_branch":   "当前分支",
-        "git_changes":  "更改",
-        "git_staged":   "已暂存",
-        "git_unstaged": "未暂存",
-        "git_commit":   "提交",
-        "git_commit_msg":"输入提交信息…",
-        "git_push":     "推送",
-        "git_pull":     "拉取",
-        "git_refresh":  "刷新",
-        "git_init":     "初始化仓库",
-        "git_no_repo":  "当前目录不是Git仓库",
-        "git_commits_ahead": "领先提交",
-        "git_commits_behind":"落后提交",
         # find bar
         "find_placeholder":    "查找…",
         "replace_placeholder": "替换…",
@@ -279,21 +253,6 @@ LANG = {
         "mi_run_trace": "Run with Trace",
         "mi_shortcuts": "Keyboard Shortcuts…",
         "mi_about":     "About Nexa Studio",
-        # git panel
-        "source_control": "Source Control",
-        "git_branch":   "Current Branch",
-        "git_changes":  "Changes",
-        "git_staged":   "Staged",
-        "git_unstaged": "Unstaged",
-        "git_commit":   "Commit",
-        "git_commit_msg":"Enter commit message…",
-        "git_push":     "Push",
-        "git_pull":     "Pull",
-        "git_refresh":  "Refresh",
-        "git_init":     "Initialize Repository",
-        "git_no_repo":  "Not a git repository",
-        "git_commits_ahead": "Commits Ahead",
-        "git_commits_behind":"Commits Behind",
         "find_placeholder":    "Find…",
         "replace_placeholder": "Replace…",
         "find_prev":    "↑",
@@ -381,10 +340,6 @@ class NexaStudio(tk.Tk):
         self._compile_start: float = 0.0
         self._bottom_collapsed: bool = False
         self._panes_initialized: bool = False
-        self._left_panel_mode: str = "explorer"  # or "source_control"
-        self.git_repo_root: Path | None = None
-        self.git_status: dict = {}
-        self.git_branch: str = ""
 
         self.code_font = self._choose_code_font()
         self.lang = tk.StringVar(value="zh")
@@ -407,7 +362,6 @@ class NexaStudio(tk.Tk):
         self.file_tree_nodes: dict[str, Path] = {}
         self.definition_index: dict[str, tuple[Path | None, int, int, str]] = {}
         self.explorer_visible: bool = True
-        self.open_files: list[Path] = []  # Track open files for editor list
 
         self._setup_style()
         self._build_menubar()
@@ -482,12 +436,10 @@ class NexaStudio(tk.Tk):
                        background=[("active", ACCENT_H), ("pressed", "#005a9e")])
         self.style.configure("TButton", background=PANEL_2, foreground=FG,
                              bordercolor=BORDER, padding=(10, 5),
-                             focusthickness=0, relief="flat", font=FONT_UI)
+                             focusthickness=0, relief="flat")
         self.style.map("TButton",
-                       background=[("active", PANEL_3), ("pressed", "#333337"),
-                                   ("!disabled", PANEL_2)],
-                       foreground=[("disabled", FG_DIM), ("active", FG)],
-                       bordercolor=[("active", "#0078d4")])
+                       background=[("active", "#3a3a3d"), ("pressed", "#444448")],
+                       foreground=[("disabled", FG_DIM)])
         self.style.configure("Small.TButton", background=PANEL_2, foreground=FG_DIM,
                              bordercolor=BORDER, padding=(5, 3),
                              focusthickness=0, relief="flat", font=("Segoe UI", 9))
@@ -506,13 +458,10 @@ class NexaStudio(tk.Tk):
         # Notebook
         self.style.configure("TNotebook", background=BG, borderwidth=0)
         self.style.configure("TNotebook.Tab", background=PANEL_2, foreground=FG_DIM,
-                             padding=(11, 7), borderwidth=0, font=("Segoe UI", 9))
+                             padding=(11, 6), borderwidth=0, font=("Segoe UI", 9))
         self.style.map("TNotebook.Tab",
-                       background=[("selected", TAB_ACTIVE), ("!selected", PANEL_2),
-                                   ("active", PANEL_3)],
-                       foreground=[("selected", BLUE), ("!selected", FG_DIM),
-                                   ("active", FG)],
-                       bordercolor=[("selected", BLUE)])
+                       background=[("selected", TAB_ACTIVE)],
+                       foreground=[("selected", FG)])
         # PanedWindow
         self.style.configure("TPanedwindow", background=BORDER)
         # Treeview
@@ -520,12 +469,11 @@ class NexaStudio(tk.Tk):
                              foreground=FG, bordercolor=BORDER, rowheight=24,
                              font=self._choose_code_font())
         self.style.configure("Treeview.Heading", background=PANEL_2,
-                             foreground=FG, relief="flat",
-                             font=("Segoe UI", 9, "bold"), borderwidth=0)
+                             foreground=FG_DIM, relief="flat",
+                             font=("Segoe UI", 9, "bold"))
         self.style.map("Treeview",
-                       background=[("selected", "#094771"), ("!selected", BG)],
-                       foreground=[("selected", BLUE), ("!selected", FG)],
-                       bordercolor=[("selected", BLUE)])
+                       background=[("selected", "#094771")],
+                       foreground=[("selected", "#ffffff")])
         # Checkbutton (for find bar)
         self.style.configure("Find.TCheckbutton", background=FIND_BG,
                              foreground=FG_DIM, focusthickness=0)
@@ -630,45 +578,12 @@ class NexaStudio(tk.Tk):
         self.work_pane = ttk.PanedWindow(self.main_pane, orient=tk.HORIZONTAL)
         self.main_pane.add(self.work_pane, weight=8)
 
-        # Activity Bar (left vertical icon strip)
-        self._build_activity_bar()
-
-        # Left sidebar container (Explorer or Source Control)
-        self.left_panel = ttk.Frame(self.work_pane, style="Panel.TFrame")
-        self.left_panel.rowconfigure(0, weight=1)
-        self.left_panel.columnconfigure(0, weight=1)
-
-        # Content container (no header row needed)
-        self.left_content = ttk.Frame(self.left_panel, style="Panel.TFrame")
-        self.left_content.grid(row=0, column=0, sticky="nsew")
-        self.left_content.rowconfigure(0, weight=1)
-        self.left_content.columnconfigure(0, weight=1)
-
-        self.work_pane.add(self.left_panel, weight=15)
-
         # Explorer
-        self.explorer_panel = ttk.Frame(self.left_content, style="Panel.TFrame")
+        self.explorer_panel = ttk.Frame(self.work_pane, style="Panel.TFrame")
         self.explorer_panel.rowconfigure(1, weight=1)
         self.explorer_panel.columnconfigure(0, weight=1)
         self._build_explorer(self.explorer_panel)
-
-        # Source Control (Git)
-        self.git_panel = ttk.Frame(self.left_content, style="Panel.TFrame")
-        self.git_panel.rowconfigure(1, weight=1)
-        self.git_panel.columnconfigure(0, weight=1)
-        self._build_git_panel(self.git_panel)
-
-        # Search
-        self.search_panel = ttk.Frame(self.left_content, style="Panel.TFrame")
-        self.search_panel.rowconfigure(2, weight=1)
-        self.search_panel.columnconfigure(0, weight=1)
-        self._build_search_panel(self.search_panel)
-
-        # Debug
-        self.debug_panel = ttk.Frame(self.left_content, style="Panel.TFrame")
-        self.debug_panel.rowconfigure(99, weight=1)
-        self.debug_panel.columnconfigure(0, weight=1)
-        self._build_debug_panel(self.debug_panel)
+        self.work_pane.add(self.explorer_panel, weight=16)
 
         # Editor
         self.editor_panel = ttk.Frame(self.work_pane, style="Root.TFrame")
@@ -676,14 +591,14 @@ class NexaStudio(tk.Tk):
         self.editor_panel.columnconfigure(0, weight=1)
         self._build_editor_header(self.editor_panel)
         self._build_editor(self.editor_panel)
-        self.work_pane.add(self.editor_panel, weight=58)
+        self.work_pane.add(self.editor_panel, weight=42)
 
         # Output
         self.output_panel = ttk.Frame(self.work_pane, style="Root.TFrame")
         self.output_panel.rowconfigure(0, weight=1)
         self.output_panel.columnconfigure(0, weight=1)
         self._build_notebook(self.output_panel)
-        self.work_pane.add(self.output_panel, weight=27)
+        self.work_pane.add(self.output_panel, weight=42)
 
         # Bottom
         self.bottom_panel = ttk.Frame(self.main_pane, style="Panel.TFrame")
@@ -694,105 +609,6 @@ class NexaStudio(tk.Tk):
 
         self._build_statusbar()
         self.after(120, self._set_initial_panes)
-        self.after(100, self._show_left_panel)
-
-    # ── activity bar (left vertical icon strip) ───────────────────────────────
-    def _build_activity_bar(self) -> None:
-        # Vertical activity bar on far left
-        self.activity_bar = ttk.Frame(self.work_pane, style="Toolbar.TFrame",
-                                      width=35)
-        self.activity_bar.pack_propagate(False)  # Fixed width
-        self.work_pane.add(self.activity_bar, weight=0)
-
-        # Vertical container for icons
-        icon_frame = ttk.Frame(self.activity_bar, style="Toolbar.TFrame")
-        icon_frame.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
-
-        # Activity bar buttons (vertical)
-        self.explorer_icon_btn = tk.Button(
-            icon_frame, text="📁", font=("Segoe UI", 14), fg=FG_DIM, bg=PANEL_2,
-            relief=tk.FLAT, padx=6, pady=8, activebackground=ACCENT,
-            activeforeground="#fff", command=lambda: self._show_left_panel("explorer"))
-        self.explorer_icon_btn.pack(side=tk.TOP, pady=0)
-        _Tooltip(self.explorer_icon_btn, "Explorer (Ctrl+E)")
-
-        self.search_icon_btn = tk.Button(
-            icon_frame, text="🔍", font=("Segoe UI", 14), fg=FG_DIM, bg=PANEL_2,
-            relief=tk.FLAT, padx=6, pady=8, activebackground=ACCENT,
-            activeforeground="#fff", command=lambda: self._show_left_panel("search"))
-        self.search_icon_btn.pack(side=tk.TOP, pady=0)
-        _Tooltip(self.search_icon_btn, "Search")
-
-        self.git_icon_btn = tk.Button(
-            icon_frame, text="⚡", font=("Segoe UI", 14), fg=FG_DIM, bg=PANEL_2,
-            relief=tk.FLAT, padx=6, pady=8, activebackground=ACCENT,
-            activeforeground="#fff", command=lambda: self._show_left_panel("source_control"))
-        self.git_icon_btn.pack(side=tk.TOP, pady=0)
-        _Tooltip(self.git_icon_btn, "Source Control (Ctrl+Shift+G)")
-
-        self.debug_icon_btn = tk.Button(
-            icon_frame, text="🐛", font=("Segoe UI", 14), fg=FG_DIM, bg=PANEL_2,
-            relief=tk.FLAT, padx=6, pady=8, activebackground=ACCENT,
-            activeforeground="#fff", command=lambda: self._show_left_panel("debug"))
-        self.debug_icon_btn.pack(side=tk.TOP, pady=0)
-        _Tooltip(self.debug_icon_btn, "Run and Debug (F5)")
-
-        # Separator
-        sep = ttk.Separator(icon_frame, orient=tk.HORIZONTAL)
-        sep.pack(side=tk.TOP, fill=tk.X, pady=6, padx=0)
-
-        self.extensions_icon_btn = tk.Button(
-            icon_frame, text="🧩", font=("Segoe UI", 14), fg=FG_DIM, bg=PANEL_2,
-            relief=tk.FLAT, padx=6, pady=8, activebackground=ACCENT,
-            activeforeground="#fff", command=lambda: None)
-        self.extensions_icon_btn.pack(side=tk.TOP, pady=0)
-        _Tooltip(self.extensions_icon_btn, "Extensions (Coming soon)")
-
-    def _update_activity_bar_buttons(self, active_mode: str) -> None:
-        # Update button appearance based on active mode
-        buttons = {
-            "explorer": self.explorer_icon_btn,
-            "search": self.search_icon_btn,
-            "source_control": self.git_icon_btn,
-            "debug": self.debug_icon_btn,
-        }
-
-        for mode, btn in buttons.items():
-            if mode == active_mode:
-                btn.config(fg=BLUE, bg=PANEL_3)
-            else:
-                btn.config(fg=FG_DIM, bg=PANEL_2)
-
-    def _show_left_panel(self, mode: str = None) -> None:
-        if mode:
-            self._left_panel_mode = mode
-        current = self._left_panel_mode
-
-        # Hide all panels
-        for p in ("explorer_panel", "git_panel", "search_panel", "debug_panel"):
-            panel = getattr(self, p, None)
-            if panel is not None:
-                try:
-                    panel.grid_forget()
-                except tk.TclError:
-                    pass
-
-        # Show the selected panel
-        if current == "explorer":
-            self.explorer_panel.grid(row=0, column=0, sticky="nsew")
-            self._update_activity_bar_buttons("explorer")
-        elif current == "source_control":
-            self.git_panel.grid(row=0, column=0, sticky="nsew")
-            self._update_activity_bar_buttons("source_control")
-            self._refresh_git_status()
-        elif current == "search":
-            self.search_panel.grid(row=0, column=0, sticky="nsew")
-            self._update_activity_bar_buttons("search")
-            if hasattr(self, "search_entry"):
-                self.search_entry.focus_set()
-        elif current == "debug":
-            self.debug_panel.grid(row=0, column=0, sticky="nsew")
-            self._update_activity_bar_buttons("debug")
 
     # ── toolbar ───────────────────────────────────────────────────────────────
     def _build_toolbar(self) -> None:
@@ -1050,13 +866,8 @@ class NexaStudio(tk.Tk):
             main_h = max(self.main_pane.winfo_height(), 1)
             work_w = max(self.work_pane.winfo_width(), 1)
             self.main_pane.sashpos(0, max(360, int(main_h * 0.76)))
-            # 4 panels: activity_bar | left_panel | editor_panel | output_panel
-            # sash 0: after activity_bar (fixed ~35px)
-            # sash 1: after left_panel (~18% of remaining)
-            # sash 2: after editor_panel (~72% of total → editor gets the most space)
-            self.work_pane.sashpos(0, 35)
-            self.work_pane.sashpos(1, min(260, max(180, 35 + int(work_w * 0.15))))
-            self.work_pane.sashpos(2, max(620, int(work_w * 0.72)))
+            self.work_pane.sashpos(0, min(260, max(180, int(work_w * 0.16))))
+            self.work_pane.sashpos(1, max(520, int(work_w * 0.56)))
             self._panes_initialized = True
         except tk.TclError:
             self.after(120, self._set_initial_panes)
@@ -1092,12 +903,10 @@ class NexaStudio(tk.Tk):
         try:
             work_w = max(self.work_pane.winfo_width(), 1)
             if self.explorer_visible:
-                self.work_pane.sashpos(0, 35)
-                self.work_pane.sashpos(1, min(260, max(180, 35 + int(work_w * 0.15))))
-                self.work_pane.sashpos(2, max(620, int(work_w * 0.72)))
+                self.work_pane.sashpos(0, min(260, max(180, int(work_w * 0.16))))
+                self.work_pane.sashpos(1, max(520, int(work_w * 0.56)))
             else:
-                self.work_pane.sashpos(0, 35)
-                self.work_pane.sashpos(1, max(420, int(work_w * 0.65)))
+                self.work_pane.sashpos(0, max(420, int(work_w * 0.48)))
         except tk.TclError:
             pass
 
@@ -1119,102 +928,23 @@ class NexaStudio(tk.Tk):
 
     # ── explorer ──────────────────────────────────────────────────────────────
     def _build_explorer(self, parent: ttk.Frame) -> None:
-        parent.rowconfigure(0, weight=0)  # Open editors
-        parent.rowconfigure(1, weight=0)  # File tree header
-        parent.rowconfigure(2, weight=1)  # File tree
-        parent.columnconfigure(0, weight=1)
-
-        # ── Open Editors Section ──
-        self._build_open_editors_section(parent)
-
-        # ── File Tree Section Header ──
-        tree_header = ttk.Frame(parent, style="Panel.TFrame", padding=(10, 6))
-        tree_header.grid(row=1, column=0, sticky="ew")
-        ttk.Label(tree_header, text="BIANYIYUANLI-MAIN",
-                 font=("Segoe UI", 9, "bold"), foreground=FG_DIM,
-                 style="Dim.TLabel").pack(anchor=tk.W, side=tk.LEFT)
-        ttk.Button(tree_header, text="↻", width=3, style="Small.TButton",
+        header = ttk.Frame(parent, style="Panel.TFrame", padding=(10, 6))
+        header.grid(row=0, column=0, sticky="ew")
+        self.static_labels["explorer"] = ttk.Label(
+            header, text=self._t("explorer"), font=("Segoe UI", 10, "bold"))
+        self.static_labels["explorer"].pack(side=tk.LEFT)
+        ttk.Button(header, text="↻", width=3, style="Small.TButton",
                    command=self._refresh_explorer).pack(side=tk.RIGHT)
 
-        # ── File Tree Container ──
-        tree_frame = ttk.Frame(parent, style="Panel.TFrame")
-        tree_frame.grid(row=2, column=0, sticky="nsew")
-        tree_frame.rowconfigure(0, weight=1)
-        tree_frame.columnconfigure(0, weight=1)
-
-        self.file_tree = ttk.Treeview(tree_frame, show="tree", selectmode="browse")
-        self.file_tree.grid(row=0, column=0, sticky="nsew")
-        yscroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL,
+        self.file_tree = ttk.Treeview(parent, show="tree", selectmode="browse")
+        self.file_tree.grid(row=1, column=0, sticky="nsew")
+        yscroll = ttk.Scrollbar(parent, orient=tk.VERTICAL,
                                 command=self.file_tree.yview)
-        yscroll.grid(row=0, column=1, sticky="ns")
+        yscroll.grid(row=1, column=1, sticky="ns")
         self.file_tree.configure(yscrollcommand=yscroll.set)
         self.file_tree.bind("<<TreeviewOpen>>", self._on_tree_open)
         self.file_tree.bind("<Double-1>",        self._open_selected_tree_file)
-        self.file_tree.bind("<Button-3>",        self._show_tree_context_menu)
         self._refresh_explorer()
-
-    def _build_open_editors_section(self, parent: ttk.Frame) -> None:
-        sec_frame = ttk.Frame(parent, style="Panel.TFrame")
-        sec_frame.grid(row=0, column=0, sticky="ew")
-        sec_frame.columnconfigure(0, weight=1)
-
-        # Header with collapse/expand
-        header = ttk.Frame(sec_frame, style="Panel.TFrame", padding=(10, 4))
-        header.pack(fill=tk.X)
-
-        self.open_editors_btn = ttk.Button(
-            header, text="▼ OPEN EDITORS", style="Small.TButton",
-            command=self._toggle_open_editors, width=20)
-        self.open_editors_btn.pack(anchor=tk.W)
-        self._open_editors_expanded = True
-
-        # Open editors list
-        self.open_editors_frame = ttk.Frame(sec_frame, style="Panel.TFrame")
-        self.open_editors_frame.pack(fill=tk.X, padx=0, pady=0)
-        self.open_editors_frame.columnconfigure(0, weight=1)
-
-        self.open_editors_tree = ttk.Treeview(
-            self.open_editors_frame, height=6, columns=(), show="tree")
-        self.open_editors_tree.column("#0", width=200)
-        self.open_editors_tree.pack(fill=tk.BOTH, expand=True)
-        self.open_editors_tree.bind("<Double-1>", self._on_open_editor_click)
-        self.open_editors_tree.bind("<Button-3>", self._on_open_editor_context)
-
-    def _toggle_open_editors(self) -> None:
-        self._open_editors_expanded = not self._open_editors_expanded
-        if self._open_editors_expanded:
-            self.open_editors_btn.configure(text="▼ OPEN EDITORS")
-            self.open_editors_frame.pack(fill=tk.X, padx=0, pady=0)
-        else:
-            self.open_editors_btn.configure(text="▶ OPEN EDITORS")
-            self.open_editors_frame.pack_forget()
-
-    def _refresh_open_editors(self) -> None:
-        if not hasattr(self, "open_editors_tree"):
-            return
-        self.open_editors_tree.delete(*self.open_editors_tree.get_children())
-        if self.current_file:
-            icon = self._file_icon(self.current_file)
-            filename = self.current_file.name
-            self.open_editors_tree.insert("", tk.END, text=f"{icon}{filename}")
-
-    def _on_open_editor_click(self, _event=None) -> None:
-        selected = self.open_editors_tree.focus()
-        if selected and self.current_file:
-            self._load_file(self.current_file)
-
-    def _on_open_editor_context(self, event) -> None:
-        item = self.open_editors_tree.identify("item", event.x, event.y)
-        if not item:
-            return
-        menu = tk.Menu(self, tearoff=False, bg=PANEL_2, fg=FG,
-                      activebackground="#094771")
-        menu.add_command(label="Close", command=lambda: None)
-        menu.add_command(label="Close All", command=lambda: None)
-        try:
-            menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            menu.grab_release()
 
     def _refresh_explorer(self) -> None:
         if not hasattr(self, "file_tree"):
@@ -1223,11 +953,8 @@ class NexaStudio(tk.Tk):
         self.file_tree_nodes.clear()
         root = self.workspace_root.resolve()
         root_id = self.file_tree.insert("", tk.END,
-                                        text=f"▾ {root.name}", open=True,
-                                        tags=("folder_root",))
+                                        text=f"▾ {root.name.upper()}", open=True)
         self.file_tree_nodes[root_id] = root
-        self.file_tree.tag_configure("folder_root", foreground=BLUE)
-        self.file_tree.tag_configure("modified_file", foreground=YELLOW)
         self._populate_tree_node(root_id, root)
 
     def _populate_tree_node(self, parent_id: str, path: Path) -> None:
@@ -1240,25 +967,9 @@ class NexaStudio(tk.Tk):
         for child in children:
             if self._hide_from_explorer(child):
                 continue
-
-            if child.is_dir():
-                icon = "▸ 📁 "
-                tag = "folder"
-            else:
-                icon = self._file_icon(child) + " "
-                tag = "file"
-
-            text = icon + child.name
-            node = self.file_tree.insert(parent_id, tk.END, text=text, open=False,
-                                        tags=(tag,))
+            text = ("▸ " if child.is_dir() else self._file_icon(child)) + child.name
+            node = self.file_tree.insert(parent_id, tk.END, text=text, open=False)
             self.file_tree_nodes[node] = child
-
-            # Configure tag colors
-            if not hasattr(self, "_tree_tags_configured"):
-                self.file_tree.tag_configure("folder", foreground=BLUE)
-                self.file_tree.tag_configure("file", foreground=FG)
-                self._tree_tags_configured = True
-
             if child.is_dir():
                 self.file_tree.insert(node, tk.END, text="")
 
@@ -1272,29 +983,10 @@ class NexaStudio(tk.Tk):
         return False
 
     def _file_icon(self, path: Path) -> str:
-        suffix = path.suffix.lower()
-        # Source code files
-        if suffix == ".nx":  return "◆"
-        if suffix == ".py":  return "🐍"
-        if suffix in {".js", ".ts", ".jsx", ".tsx"}:  return "📜"
-        if suffix in {".java", ".c", ".cpp", ".h"}:  return "⚙"
-        # Config files
-        if suffix in {".json", ".yaml", ".yml", ".toml", ".ini", ".cfg"}:  return "⚙"
-        if suffix in {".xml", ".html", ".htm"}:  return "🔗"
-        # Data files
-        if suffix in {".csv", ".xlsx", ".xls"}:  return "📊"
-        if suffix in {".sql", ".db"}:  return "🗄"
-        # Text files
-        if suffix in {".md", ".markdown", ".rst"}:  return "📝"
-        if suffix in {".txt", ".log"}:  return "📄"
-        # Executables
-        if suffix in {".exe", ".sh", ".bat", ".cmd"}:  return "⚡"
-        # Archives
-        if suffix in {".zip", ".tar", ".gz", ".7z", ".rar"}:  return "📦"
-        # Images
-        if suffix in {".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico"}:  return "🖼"
-        # Other
-        return "•"
+        if path.suffix == ".nx":  return "◆ "
+        if path.suffix == ".py":  return "🐍 "
+        if path.suffix in {".md", ".txt"}: return "☰ "
+        return "• "
 
     def _on_tree_open(self, _event=None) -> None:
         selected = self.file_tree.focus()
@@ -1307,1027 +999,6 @@ class NexaStudio(tk.Tk):
         path = self.file_tree_nodes.get(selected)
         if path and path.is_file():
             self._load_file(path)
-
-    def _show_tree_context_menu(self, event) -> None:
-        item = self.file_tree.identify("item", event.x, event.y)
-        if not item:
-            return
-
-        self.file_tree.focus(item)
-        self.file_tree.selection_set(item)
-        path = self.file_tree_nodes.get(item)
-        if not path:
-            return
-
-        menu = tk.Menu(self, tearoff=False, bg=PANEL_2, fg=FG,
-                      activebackground="#094771", activeforeground="#ffffff")
-
-        if path.is_file():
-            menu.add_command(label="Open", command=lambda: self._load_file(path))
-            menu.add_separator()
-
-        menu.add_command(label="Reveal in Explorer", command=lambda: None)
-        menu.add_separator()
-
-        if path.is_file():
-            menu.add_command(label="Copy", command=lambda: self._copy_path(path))
-            menu.add_command(label="Copy Relative Path",
-                           command=lambda: self._copy_path(path, relative=True))
-        menu.add_separator()
-        menu.add_command(label="Delete", command=lambda: self._delete_file(path))
-
-        try:
-            menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            menu.grab_release()
-
-    def _copy_path(self, path: Path, relative: bool = False) -> None:
-        if relative:
-            try:
-                text = str(path.relative_to(self.workspace_root))
-            except ValueError:
-                text = str(path)
-        else:
-            text = str(path.resolve())
-        self.clipboard_clear()
-        self.clipboard_append(text)
-
-    def _delete_file(self, path: Path) -> None:
-        if messagebox.askyesno("Delete", f"Delete {path.name}?"):
-            try:
-                if path.is_dir():
-                    shutil.rmtree(path)
-                else:
-                    path.unlink()
-                self._refresh_explorer()
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to delete: {e}")
-
-    # ── source control (git) ──────────────────────────────────────────────────
-    def _build_git_panel(self, parent: ttk.Frame) -> None:
-        # Header with refresh button
-        header = ttk.Frame(parent, style="Panel.TFrame", padding=(10, 6))
-        header.grid(row=0, column=0, sticky="ew")
-        self.static_labels["source_control"] = ttk.Label(
-            header, text=self._t("source_control"), font=("Segoe UI", 10, "bold"))
-        self.static_labels["source_control"].pack(side=tk.LEFT)
-        ttk.Button(header, text="↻", width=3, style="Small.TButton",
-                   command=self._refresh_git_status).pack(side=tk.RIGHT)
-
-        # Main scrollable area
-        main_frame = ttk.Frame(parent, style="Panel.TFrame")
-        main_frame.grid(row=1, column=0, sticky="nsew")
-        main_frame.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(0, weight=1)
-
-        canvas = tk.Canvas(main_frame, bg=PANEL, highlightthickness=0, relief=tk.FLAT)
-        canvas.grid(row=0, column=0, sticky="nsew")
-
-        scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=canvas.yview)
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        self.git_content = ttk.Frame(canvas, style="Panel.TFrame")
-        canvas.create_window((0, 0), window=self.git_content, anchor="nw")
-
-        def _on_frame_configure(event=None) -> None:
-            canvas.configure(scrollregion=canvas.bbox("all"))
-
-        self.git_content.bind("<Configure>", _on_frame_configure)
-
-        # Branch info section
-        self._build_git_branch_section(self.git_content)
-
-        # Changes section
-        self._build_git_changes_section(self.git_content)
-
-        # Commit message section
-        self._build_git_commit_section(self.git_content)
-
-        # Commit graph section
-        self._build_git_graph(self.git_content)
-
-    def _build_git_branch_section(self, parent: ttk.Frame) -> None:
-        sec = ttk.Frame(parent, style="Panel.TFrame", padding=(8, 6))
-        sec.pack(fill=tk.X, padx=0, pady=0)
-
-        # Current branch
-        lbl = ttk.Label(sec, text=self._t("git_branch"), font=("Segoe UI", 9, "bold"),
-                       foreground=FG_DIM, style="Dim.TLabel")
-        lbl.pack(anchor=tk.W, pady=(0, 4))
-
-        branch_frame = ttk.Frame(sec, style="Panel.TFrame")
-        branch_frame.pack(anchor=tk.W, pady=(0, 8), fill=tk.X)
-
-        self.git_branch_label = ttk.Label(
-            branch_frame, text="Loading…", foreground=BLUE, style="TLabel",
-            font=("Segoe UI", 11, "bold"))
-        self.git_branch_label.pack(side=tk.LEFT)
-
-        self.git_status_label = ttk.Label(
-            branch_frame, text="", foreground=FG_DIM, style="Dim.TLabel",
-            font=("Segoe UI", 8))
-        self.git_status_label.pack(side=tk.RIGHT)
-
-        # Branch buttons
-        btn_frame = ttk.Frame(sec, style="Panel.TFrame")
-        btn_frame.pack(fill=tk.X, pady=(0, 4))
-        ttk.Button(btn_frame, text="⬇ Pull", style="Small.TButton",
-                   command=self._git_pull).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="⬆ Push", style="Small.TButton",
-                   command=self._git_push).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="⟳ Sync", style="Small.TButton",
-                   command=self._git_sync).pack(side=tk.LEFT, padx=2)
-
-    def _build_git_changes_section(self, parent: ttk.Frame) -> None:
-        sec = ttk.Frame(parent, style="Panel.TFrame", padding=(8, 6))
-        sec.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
-
-        lbl = ttk.Label(sec, text=self._t("git_changes"), font=("Segoe UI", 9, "bold"),
-                       foreground=FG_DIM, style="Dim.TLabel")
-        lbl.pack(anchor=tk.W, pady=(0, 4))
-
-        # Tree container frame (for grid geometry)
-        tree_frame = ttk.Frame(sec, style="Panel.TFrame")
-        tree_frame.pack(fill=tk.BOTH, expand=True)
-        tree_frame.rowconfigure(0, weight=1)
-        tree_frame.columnconfigure(0, weight=1)
-
-        # Changes tree
-        self.git_tree = ttk.Treeview(tree_frame, height=8, columns=("status",),
-                                     show="tree headings")
-        self.git_tree.heading("#0", text="File")
-        self.git_tree.heading("status", text="")
-        self.git_tree.column("#0", width=180)
-        self.git_tree.column("status", width=60)
-        self.git_tree.tag_configure("modified", foreground=YELLOW)
-        self.git_tree.tag_configure("added", foreground=GREEN)
-        self.git_tree.tag_configure("deleted", foreground=RED)
-        self.git_tree.tag_configure("renamed", foreground=PURPLE)
-
-        yscroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.git_tree.yview)
-        self.git_tree.configure(yscrollcommand=yscroll.set)
-
-        self.git_tree.grid(row=0, column=0, sticky="nsew")
-        yscroll.grid(row=0, column=1, sticky="ns")
-
-    def _build_git_commit_section(self, parent: ttk.Frame) -> None:
-        sec = ttk.Frame(parent, style="Panel.TFrame", padding=(8, 6))
-        sec.pack(fill=tk.X, padx=0, pady=0)
-
-        lbl = ttk.Label(sec, text=self._t("git_commit"), font=("Segoe UI", 9, "bold"),
-                       foreground=FG_DIM, style="Dim.TLabel")
-        lbl.pack(anchor=tk.W, pady=(0, 4))
-
-        # Commit message input
-        self.git_msg_text = tk.Text(
-            sec, height=4, wrap=tk.WORD, font=("Segoe UI", 9),
-            bg="#2d2d30", fg=FG, insertbackground=FG,
-            relief=tk.FLAT, padx=6, pady=4)
-        self.git_msg_text.pack(fill=tk.X, pady=(0, 6))
-        self.git_msg_text.insert("1.0", self._t("git_commit_msg"))
-
-        # Commit button
-        ttk.Button(sec, text="✓ Commit", style="Accent.TButton",
-                   command=self._git_commit).pack(fill=tk.X)
-
-    def _refresh_git_status(self) -> None:
-        try:
-            if not hasattr(self, "git_branch_label"):
-                return
-
-            self._detect_git_repo()
-            if not self.git_repo_root:
-                self.git_branch_label.configure(
-                    text=self._t("git_no_repo"), foreground=RED)
-                if hasattr(self, "git_tree"):
-                    self.git_tree.delete(*self.git_tree.get_children())
-                # Show init UI
-                if hasattr(self, "git_content"):
-                    self._show_git_init_ui()
-                return
-
-            # Get current branch
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "rev-parse", "--abbrev-ref", "HEAD"],
-                capture_output=True, text=True, timeout=5, check=False)
-            if result.returncode == 0:
-                branch = result.stdout.strip()
-                self.git_branch = branch
-                self.git_branch_label.configure(text=branch, foreground=BLUE)
-            else:
-                self.git_branch_label.configure(
-                    text=self._t("git_no_repo"), foreground=RED)
-                if hasattr(self, "git_content"):
-                    self._show_git_init_ui()
-                return
-
-            # Get commits ahead/behind
-            self._update_commits_info()
-
-            # Get file status
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "status", "--porcelain"],
-                capture_output=True, text=True, timeout=5, check=False)
-            if result.returncode == 0:
-                self._render_git_changes(result.stdout)
-
-            # Refresh commit graph
-            self._refresh_git_graph()
-
-        except FileNotFoundError:
-            if hasattr(self, "git_branch_label"):
-                self.git_branch_label.configure(
-                    text="Git not found", foreground=RED)
-        except Exception as e:
-            if hasattr(self, "git_branch_label"):
-                self.git_branch_label.configure(
-                    text=f"Error: {str(e)[:30]}", foreground=RED)
-
-    def _detect_git_repo(self) -> None:
-        current = self.workspace_root
-        for _ in range(10):
-            if (current / ".git").exists():
-                self.git_repo_root = current
-                return
-            current = current.parent
-        self.git_repo_root = None
-
-    def _update_commits_info(self) -> None:
-        if not self.git_repo_root:
-            return
-        try:
-            # Get ahead/behind count
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "rev-list", "--left-right", "--count",
-                 "HEAD...@{u}"],
-                capture_output=True, text=True, timeout=5, check=False)
-            if result.returncode == 0:
-                ahead, behind = result.stdout.strip().split()
-                ahead, behind = int(ahead), int(behind)
-                if ahead > 0 or behind > 0:
-                    status = ""
-                    if ahead > 0:
-                        status += f"↑{ahead} "
-                    if behind > 0:
-                        status += f"↓{behind}"
-                    if hasattr(self, "git_status_label"):
-                        self.git_status_label.configure(text=status.strip())
-                else:
-                    if hasattr(self, "git_status_label"):
-                        self.git_status_label.configure(text="")
-        except Exception:
-            pass
-
-    def _render_git_changes(self, output: str) -> None:
-        self.git_tree.delete(*self.git_tree.get_children())
-        for line in output.strip().split("\n"):
-            if not line:
-                continue
-            status_code = line[:2]
-            path = line[3:]
-            status_text = ""
-            tag = ""
-
-            if status_code[0] == "M":
-                status_text = "Modified"
-                tag = "modified"
-            elif status_code[0] == "A":
-                status_text = "Added"
-                tag = "added"
-            elif status_code[0] == "D":
-                status_text = "Deleted"
-                tag = "deleted"
-            elif status_code[0] == "R":
-                status_text = "Renamed"
-                tag = "renamed"
-            elif status_code[0] == "?":
-                status_text = "Untracked"
-                tag = "added"
-
-            filename = Path(path).name
-            self.git_tree.insert("", tk.END, text=filename, values=(status_text,), tag=tag)
-
-    def _git_commit(self) -> None:
-        if not self.git_repo_root:
-            messagebox.showerror("Error", self._t("git_no_repo"))
-            return
-
-        msg = self.git_msg_text.get("1.0", tk.END).strip()
-        if not msg or msg == self._t("git_commit_msg"):
-            messagebox.showwarning("Warning", "Please enter a commit message")
-            return
-
-        try:
-            # Stage all changes
-            subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "add", "-A"],
-                capture_output=True, timeout=5, check=False)
-
-            # Commit
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "commit", "-m", msg],
-                capture_output=True, text=True, timeout=5, check=False)
-
-            if result.returncode == 0:
-                self.git_msg_text.delete("1.0", tk.END)
-                self.git_msg_text.insert("1.0", self._t("git_commit_msg"))
-                self._refresh_git_status()
-                messagebox.showinfo("Success", "Commit successful")
-            else:
-                error = result.stderr if result.stderr else "Commit failed"
-                messagebox.showerror("Error", error)
-        except Exception as e:
-            messagebox.showerror("Error", f"Commit failed: {str(e)}")
-
-    def _git_push(self) -> None:
-        if not self.git_repo_root:
-            messagebox.showerror("Error", self._t("git_no_repo"))
-            return
-
-        try:
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "push"],
-                capture_output=True, text=True, timeout=15, check=False)
-            self._refresh_git_status()
-            if result.returncode == 0:
-                messagebox.showinfo("Success", "Push successful")
-            else:
-                error = result.stderr if result.stderr else "Push failed"
-                messagebox.showerror("Error", error)
-        except Exception as e:
-            messagebox.showerror("Error", f"Push failed: {str(e)}")
-
-    def _git_pull(self) -> None:
-        if not self.git_repo_root:
-            messagebox.showerror("Error", self._t("git_no_repo"))
-            return
-
-        try:
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "pull"],
-                capture_output=True, text=True, timeout=15, check=False)
-            self._refresh_git_status()
-            if result.returncode == 0:
-                messagebox.showinfo("Success", "Pull successful")
-            else:
-                messagebox.showerror("Error", result.stderr or "Pull failed")
-        except Exception as e:
-            messagebox.showerror("Error", f"Pull failed: {str(e)}")
-
-    def _git_sync(self) -> None:
-        if not self.git_repo_root:
-            messagebox.showerror("Error", self._t("git_no_repo"))
-            return
-
-        try:
-            # Pull first
-            subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "pull"],
-                capture_output=True, timeout=15, check=False)
-            # Then push
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "push"],
-                capture_output=True, text=True, timeout=15, check=False)
-            self._refresh_git_status()
-            if result.returncode == 0:
-                messagebox.showinfo("Success", "Sync successful")
-            else:
-                messagebox.showerror("Error", result.stderr or "Sync failed")
-        except Exception as e:
-            messagebox.showerror("Error", f"Sync failed: {str(e)}")
-
-    def _show_git_init_ui(self) -> None:
-        # Clear existing content
-        for child in self.git_content.winfo_children():
-            child.destroy()
-
-        # Show initialization message and button
-        frame = ttk.Frame(self.git_content, style="Panel.TFrame")
-        frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=40)
-
-        ttk.Label(frame, text=self._t("git_no_repo"),
-                 font=("Segoe UI", 11), foreground=FG_DIM,
-                 style="Dim.TLabel").pack(pady=(0, 20))
-
-        ttk.Button(frame, text="🔧 " + self._t("git_init"),
-                  style="Accent.TButton",
-                  command=self._git_init_repo).pack(fill=tk.X, pady=10)
-
-    def _git_init_repo(self) -> None:
-        try:
-            result = subprocess.run(
-                ["git", "init"],
-                cwd=str(self.workspace_root),
-                capture_output=True, text=True, timeout=5, check=False)
-
-            if result.returncode == 0:
-                self.git_repo_root = self.workspace_root
-                self._refresh_git_status()
-                messagebox.showinfo("Success", "Repository initialized")
-            else:
-                messagebox.showerror("Error", result.stderr or "Init failed")
-        except Exception as e:
-            messagebox.showerror("Error", f"Init failed: {str(e)}")
-
-    # ── search panel ──────────────────────────────────────────────────────────
-    def _build_search_panel(self, parent: ttk.Frame) -> None:
-        # Header
-        header = ttk.Frame(parent, style="Panel.TFrame", padding=(10, 6))
-        header.grid(row=0, column=0, sticky="ew")
-        ttk.Label(header, text="SEARCH", font=("Segoe UI", 10, "bold"),
-                 foreground=FG_DIM, style="Dim.TLabel").pack(side=tk.LEFT)
-        ttk.Button(header, text="⟲", width=3, style="Small.TButton",
-                   command=self._search_clear).pack(side=tk.RIGHT)
-
-        # Input area
-        input_frame = ttk.Frame(parent, style="Panel.TFrame", padding=(8, 4))
-        input_frame.grid(row=1, column=0, sticky="ew")
-        input_frame.columnconfigure(0, weight=1)
-
-        self.search_var = tk.StringVar()
-        self.search_entry = tk.Entry(
-            input_frame, textvariable=self.search_var,
-            bg="#3c3c3c", fg=FG, insertbackground=FG,
-            relief=tk.FLAT, highlightthickness=1,
-            highlightbackground=BORDER, highlightcolor=BLUE,
-            font=("Segoe UI", 10))
-        self.search_entry.grid(row=0, column=0, sticky="ew", pady=(0, 4))
-        self.search_entry.bind("<Return>", lambda _e: self._search_workspace())
-
-        # Options
-        opt = ttk.Frame(input_frame, style="Panel.TFrame")
-        opt.grid(row=1, column=0, sticky="ew")
-        self.search_case_var = tk.BooleanVar(value=False)
-        self.search_regex_var = tk.BooleanVar(value=False)
-        self.search_word_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(opt, text="Aa", variable=self.search_case_var,
-                      bg=PANEL, fg=FG_DIM, selectcolor=PANEL_3,
-                      activebackground=PANEL, activeforeground=BLUE,
-                      relief=tk.FLAT, borderwidth=0,
-                      font=("Segoe UI", 8)).pack(side=tk.LEFT)
-        tk.Checkbutton(opt, text="ʫw", variable=self.search_word_var,
-                      bg=PANEL, fg=FG_DIM, selectcolor=PANEL_3,
-                      activebackground=PANEL, activeforeground=BLUE,
-                      relief=tk.FLAT, borderwidth=0,
-                      font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(2, 0))
-        tk.Checkbutton(opt, text=".*", variable=self.search_regex_var,
-                      bg=PANEL, fg=FG_DIM, selectcolor=PANEL_3,
-                      activebackground=PANEL, activeforeground=BLUE,
-                      relief=tk.FLAT, borderwidth=0,
-                      font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(2, 0))
-        ttk.Button(opt, text="Search", style="Small.TButton",
-                  command=self._search_workspace).pack(side=tk.RIGHT)
-
-        # Results
-        result_frame = ttk.Frame(parent, style="Panel.TFrame")
-        result_frame.grid(row=2, column=0, sticky="nsew")
-        result_frame.rowconfigure(1, weight=1)
-        result_frame.columnconfigure(0, weight=1)
-
-        self.search_result_summary = ttk.Label(
-            result_frame, text="", style="Dim.TLabel",
-            font=("Segoe UI", 9), padding=(10, 4))
-        self.search_result_summary.grid(row=0, column=0, sticky="ew")
-
-        tree_container = ttk.Frame(result_frame, style="Panel.TFrame")
-        tree_container.grid(row=1, column=0, sticky="nsew")
-        tree_container.rowconfigure(0, weight=1)
-        tree_container.columnconfigure(0, weight=1)
-
-        self.search_tree = ttk.Treeview(tree_container, show="tree",
-                                        selectmode="browse")
-        self.search_tree.grid(row=0, column=0, sticky="nsew")
-        yscroll = ttk.Scrollbar(tree_container, orient=tk.VERTICAL,
-                                command=self.search_tree.yview)
-        yscroll.grid(row=0, column=1, sticky="ns")
-        self.search_tree.configure(yscrollcommand=yscroll.set)
-        self.search_tree.tag_configure("file_hdr", foreground=BLUE,
-                                       font=("Segoe UI", 9, "bold"))
-        self.search_tree.tag_configure("match", foreground=FG)
-        self.search_tree.bind("<Double-1>", self._search_jump_to_match)
-
-        # Track matches: item_id -> (path, line, col)
-        self._search_matches: dict[str, tuple[Path, int, int]] = {}
-
-    def _search_clear(self) -> None:
-        self.search_var.set("")
-        self.search_tree.delete(*self.search_tree.get_children())
-        self.search_result_summary.configure(text="")
-        self._search_matches.clear()
-
-    def _search_workspace(self) -> None:
-        query = self.search_var.get().strip()
-        self.search_tree.delete(*self.search_tree.get_children())
-        self._search_matches.clear()
-        if not query:
-            self.search_result_summary.configure(text="")
-            return
-
-        case_sensitive = self.search_case_var.get()
-        use_regex = self.search_regex_var.get()
-        word_only = self.search_word_var.get()
-
-        try:
-            if use_regex:
-                flags = 0 if case_sensitive else re.IGNORECASE
-                if word_only:
-                    pattern = re.compile(r"\b" + query + r"\b", flags)
-                else:
-                    pattern = re.compile(query, flags)
-            else:
-                escaped = re.escape(query)
-                flags = 0 if case_sensitive else re.IGNORECASE
-                if word_only:
-                    pattern = re.compile(r"\b" + escaped + r"\b", flags)
-                else:
-                    pattern = re.compile(escaped, flags)
-        except re.error as e:
-            self.search_result_summary.configure(text=f"Regex error: {e}",
-                                                 foreground=RED)
-            return
-
-        total_matches = 0
-        total_files = 0
-        for path in self._iter_searchable_files(self.workspace_root):
-            try:
-                text = path.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
-            file_matches = []
-            for line_no, line in enumerate(text.splitlines(), 1):
-                for m in pattern.finditer(line):
-                    file_matches.append((line_no, m.start(), line))
-                    if len(file_matches) > 50:
-                        break
-                if len(file_matches) > 50:
-                    break
-            if not file_matches:
-                continue
-            total_files += 1
-            total_matches += len(file_matches)
-            try:
-                rel = path.relative_to(self.workspace_root)
-            except ValueError:
-                rel = path
-            file_id = self.search_tree.insert(
-                "", tk.END, text=f"▾ {rel}  ({len(file_matches)})",
-                open=True, tags=("file_hdr",))
-            for line_no, col, line in file_matches[:50]:
-                snippet = line.strip()
-                if len(snippet) > 80:
-                    snippet = snippet[:77] + "..."
-                mid = self.search_tree.insert(
-                    file_id, tk.END,
-                    text=f"  {line_no}: {snippet}", tags=("match",))
-                self._search_matches[mid] = (path, line_no, col)
-            if total_matches > 500:
-                self.search_tree.insert("", tk.END,
-                                        text="  (too many matches, truncated)")
-                break
-
-        self.search_result_summary.configure(
-            text=f"{total_matches} results in {total_files} files",
-            foreground=FG_DIM)
-
-    def _iter_searchable_files(self, root: Path):
-        skip_dirs = {"__pycache__", ".git", ".pytest_cache", ".pytest-tmp",
-                    "node_modules", "nexa.egg-info", "out", ".venv", "venv"}
-        skip_suffix = {".pyc", ".pyo", ".dll", ".so", ".exe", ".png", ".jpg",
-                       ".jpeg", ".gif", ".ico", ".pdf", ".zip", ".tar", ".gz",
-                       ".7z", ".bin", ".dot"}
-        for path in root.rglob("*"):
-            if not path.is_file():
-                continue
-            if any(part in skip_dirs for part in path.parts):
-                continue
-            if path.suffix.lower() in skip_suffix:
-                continue
-            if path.stat().st_size > 1_000_000:
-                continue
-            yield path
-
-    def _search_jump_to_match(self, _event=None) -> None:
-        item = self.search_tree.focus()
-        info = self._search_matches.get(item)
-        if not info:
-            return
-        path, line, col = info
-        if path != self.current_file:
-            self._load_file(path)
-        index = f"{line}.{col}"
-        self.editor.focus_set()
-        self.editor.mark_set(tk.INSERT, index)
-        self.editor.see(index)
-        self.editor.tag_remove("find_match", "1.0", tk.END)
-        self.editor.tag_add("find_match", index,
-                           f"{line}.{col}+{len(self.search_var.get())}c")
-
-    # ── debug panel ───────────────────────────────────────────────────────────
-    def _build_debug_panel(self, parent: ttk.Frame) -> None:
-        # Header
-        header = ttk.Frame(parent, style="Panel.TFrame", padding=(10, 6))
-        header.grid(row=0, column=0, sticky="ew")
-        ttk.Label(header, text="RUN AND DEBUG", font=("Segoe UI", 10, "bold"),
-                 foreground=FG_DIM, style="Dim.TLabel").pack(side=tk.LEFT)
-
-        # Run controls
-        run_frame = ttk.Frame(parent, style="Panel.TFrame", padding=(10, 4))
-        run_frame.grid(row=1, column=0, sticky="ew")
-
-        ttk.Button(run_frame, text="▶ Start Debugging",
-                  style="Accent.TButton",
-                  command=lambda: self.compile_now(run=True, trace=True)).pack(
-            fill=tk.X, pady=(2, 4))
-
-        # Step controls
-        step_frame = ttk.Frame(parent, style="Panel.TFrame", padding=(10, 2))
-        step_frame.grid(row=2, column=0, sticky="ew")
-        for txt, tip, cmd in (
-            ("⏵", "Continue", self._debug_continue),
-            ("⏸", "Pause", self._debug_pause),
-            ("⏹", "Stop", self._debug_stop),
-            ("⤵", "Step Over", self._debug_step_over),
-            ("⤷", "Step Into", self._debug_step_into),
-            ("⤴", "Step Out", self._debug_step_out),
-        ):
-            b = tk.Button(step_frame, text=txt, font=("Segoe UI", 12),
-                         fg=FG, bg=PANEL_2, relief=tk.FLAT,
-                         padx=8, pady=2, command=cmd,
-                         activebackground=ACCENT, activeforeground="#fff")
-            b.pack(side=tk.LEFT, padx=2)
-            _Tooltip(b, tip)
-
-        # Variables section
-        var_frame = ttk.Frame(parent, style="Panel.TFrame")
-        var_frame.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
-        var_frame.columnconfigure(0, weight=1)
-        parent.rowconfigure(3, weight=1)
-
-        var_hdr = ttk.Frame(var_frame, style="Panel.TFrame", padding=(10, 4))
-        var_hdr.grid(row=0, column=0, sticky="ew")
-        ttk.Label(var_hdr, text="▾ VARIABLES",
-                 font=("Segoe UI", 9, "bold"),
-                 foreground=FG_DIM, style="Dim.TLabel").pack(side=tk.LEFT)
-
-        self.debug_vars_tree = ttk.Treeview(
-            var_frame, columns=("value",), show="tree headings", height=6)
-        self.debug_vars_tree.heading("#0", text="Name")
-        self.debug_vars_tree.heading("value", text="Value")
-        self.debug_vars_tree.column("#0", width=120)
-        self.debug_vars_tree.column("value", width=120)
-        self.debug_vars_tree.grid(row=1, column=0, sticky="nsew",
-                                  padx=(10, 0))
-        var_frame.rowconfigure(1, weight=1)
-
-        # Call stack section
-        stack_frame = ttk.Frame(parent, style="Panel.TFrame")
-        stack_frame.grid(row=4, column=0, sticky="nsew", pady=(4, 0))
-        stack_frame.columnconfigure(0, weight=1)
-        parent.rowconfigure(4, weight=1)
-
-        stack_hdr = ttk.Frame(stack_frame, style="Panel.TFrame", padding=(10, 4))
-        stack_hdr.grid(row=0, column=0, sticky="ew")
-        ttk.Label(stack_hdr, text="▾ CALL STACK",
-                 font=("Segoe UI", 9, "bold"),
-                 foreground=FG_DIM, style="Dim.TLabel").pack(side=tk.LEFT)
-
-        self.debug_stack_list = tk.Listbox(
-            stack_frame, bg=BG, fg=FG, relief=tk.FLAT,
-            highlightthickness=0, selectbackground=SEL_BG,
-            font=("Consolas", 10), height=5)
-        self.debug_stack_list.grid(row=1, column=0, sticky="nsew",
-                                   padx=(10, 0))
-        stack_frame.rowconfigure(1, weight=1)
-
-        # Breakpoints section
-        bp_frame = ttk.Frame(parent, style="Panel.TFrame")
-        bp_frame.grid(row=5, column=0, sticky="nsew", pady=(4, 0))
-        bp_frame.columnconfigure(0, weight=1)
-
-        bp_hdr = ttk.Frame(bp_frame, style="Panel.TFrame", padding=(10, 4))
-        bp_hdr.grid(row=0, column=0, sticky="ew")
-        ttk.Label(bp_hdr, text="▾ BREAKPOINTS",
-                 font=("Segoe UI", 9, "bold"),
-                 foreground=FG_DIM, style="Dim.TLabel").pack(side=tk.LEFT)
-        ttk.Button(bp_hdr, text="🗑", style="Small.TButton", width=3,
-                  command=self._debug_clear_breakpoints).pack(side=tk.RIGHT)
-
-        self.debug_bp_list = tk.Listbox(
-            bp_frame, bg=BG, fg=FG, relief=tk.FLAT,
-            highlightthickness=0, selectbackground=SEL_BG,
-            font=("Consolas", 10), height=4)
-        self.debug_bp_list.grid(row=1, column=0, sticky="nsew",
-                                padx=(10, 0))
-        self.debug_bp_list.bind("<Double-1>", self._debug_jump_to_breakpoint)
-
-        self._breakpoints: set[tuple[Path, int]] = set()
-        self._refresh_debug_view()
-
-    def _debug_log(self, msg: str) -> None:
-        if hasattr(self, "bottom_text_views"):
-            tv = self.bottom_text_views.get("Trace")
-            if tv:
-                tv.configure(state=tk.NORMAL)
-                tv.insert(tk.END, msg + "\n")
-                tv.see(tk.END)
-                tv.configure(state=tk.DISABLED)
-
-    def _debug_continue(self) -> None:
-        self._debug_log("[debug] Continue → re-running with trace")
-        self.compile_now(run=True, trace=True)
-        self._refresh_debug_view()
-
-    def _debug_pause(self) -> None:
-        self._debug_log("[debug] Pause requested (interpreter is synchronous)")
-
-    def _debug_stop(self) -> None:
-        self._debug_log("[debug] Stop")
-        if hasattr(self, "debug_vars_tree"):
-            self.debug_vars_tree.delete(*self.debug_vars_tree.get_children())
-        if hasattr(self, "debug_stack_list"):
-            self.debug_stack_list.delete(0, tk.END)
-
-    def _debug_step_over(self) -> None:
-        self._debug_log("[debug] Step Over (single-step not yet wired)")
-
-    def _debug_step_into(self) -> None:
-        self._debug_log("[debug] Step Into (single-step not yet wired)")
-
-    def _debug_step_out(self) -> None:
-        self._debug_log("[debug] Step Out (single-step not yet wired)")
-
-    def _refresh_debug_view(self) -> None:
-        # Populate variables from last result symbols
-        if not hasattr(self, "debug_vars_tree"):
-            return
-        self.debug_vars_tree.delete(*self.debug_vars_tree.get_children())
-        self.debug_stack_list.delete(0, tk.END)
-        self.debug_bp_list.delete(0, tk.END)
-
-        result = self.last_result
-        if result is not None:
-            for sym in getattr(result, "symbols", []) or []:
-                try:
-                    name = getattr(sym, "name", str(sym))
-                    typ = getattr(sym, "type", "") or ""
-                    cat = getattr(sym, "category", "") or ""
-                    self.debug_vars_tree.insert(
-                        "", tk.END, text=str(name),
-                        values=(f"{cat}: {typ}",))
-                except Exception:
-                    pass
-
-            # Call stack from trace
-            trace = getattr(result, "trace", None)
-            if trace:
-                for entry in (trace[-10:] if isinstance(trace, list) else []):
-                    self.debug_stack_list.insert(tk.END, str(entry))
-
-        # Breakpoints
-        for path, line in sorted(self._breakpoints):
-            try:
-                rel = path.relative_to(self.workspace_root)
-            except ValueError:
-                rel = path
-            self.debug_bp_list.insert(tk.END, f"{rel}:{line}")
-
-    def _toggle_breakpoint_at_cursor(self) -> None:
-        if not self.current_file:
-            return
-        line_no = int(self.editor.index(tk.INSERT).split(".")[0])
-        key = (self.current_file, line_no)
-        if key in self._breakpoints:
-            self._breakpoints.remove(key)
-            self._debug_log(f"[bp] removed at {self.current_file.name}:{line_no}")
-        else:
-            self._breakpoints.add(key)
-            self._debug_log(f"[bp] added at {self.current_file.name}:{line_no}")
-        self._refresh_debug_view()
-        self._highlight_breakpoint_gutter()
-
-    def _highlight_breakpoint_gutter(self) -> None:
-        if not hasattr(self, "line_numbers"):
-            return
-        self.line_numbers.tag_remove("bp", "1.0", tk.END)
-        self.line_numbers.tag_configure("bp", foreground=RED,
-                                        background="#3d1f1f")
-        if not self.current_file:
-            return
-        for path, line in self._breakpoints:
-            if path == self.current_file:
-                self.line_numbers.tag_add("bp", f"{line}.0", f"{line}.end")
-
-    def _debug_clear_breakpoints(self) -> None:
-        self._breakpoints.clear()
-        self._refresh_debug_view()
-        self._highlight_breakpoint_gutter()
-
-    def _debug_jump_to_breakpoint(self, _event=None) -> None:
-        sel = self.debug_bp_list.curselection()
-        if not sel:
-            return
-        text = self.debug_bp_list.get(sel[0])
-        if ":" not in text:
-            return
-        rel, line = text.rsplit(":", 1)
-        try:
-            path = (self.workspace_root / rel).resolve()
-            line_no = int(line)
-        except (ValueError, OSError):
-            return
-        if path != self.current_file and path.exists():
-            self._load_file(path)
-        self.editor.focus_set()
-        self.editor.mark_set(tk.INSERT, f"{line_no}.0")
-        self.editor.see(f"{line_no}.0")
-
-    # ── git commit graph ──────────────────────────────────────────────────────
-    def _build_git_graph(self, parent: ttk.Frame) -> None:
-        # Container with scrollable canvas
-        graph_frame = ttk.Frame(parent, style="Panel.TFrame")
-        graph_frame.pack(fill=tk.BOTH, expand=True, padx=0, pady=(8, 0))
-        graph_frame.rowconfigure(1, weight=1)
-        graph_frame.columnconfigure(0, weight=1)
-
-        lbl = ttk.Label(graph_frame, text="▾ COMMIT GRAPH",
-                       font=("Segoe UI", 9, "bold"),
-                       foreground=FG_DIM, style="Dim.TLabel",
-                       padding=(8, 4))
-        lbl.grid(row=0, column=0, sticky="ew")
-
-        canvas_container = ttk.Frame(graph_frame, style="Panel.TFrame")
-        canvas_container.grid(row=1, column=0, sticky="nsew")
-        canvas_container.rowconfigure(0, weight=1)
-        canvas_container.columnconfigure(0, weight=1)
-
-        self.git_graph_canvas = tk.Canvas(
-            canvas_container, bg=BG, highlightthickness=0, height=300)
-        self.git_graph_canvas.grid(row=0, column=0, sticky="nsew")
-        gscroll = ttk.Scrollbar(canvas_container, orient=tk.VERTICAL,
-                               command=self.git_graph_canvas.yview)
-        gscroll.grid(row=0, column=1, sticky="ns")
-        self.git_graph_canvas.configure(yscrollcommand=gscroll.set)
-        self.git_graph_canvas.bind("<MouseWheel>",
-            lambda e: self.git_graph_canvas.yview_scroll(
-                int(-1 * (e.delta / 120)), "units"))
-
-    def _refresh_git_graph(self) -> None:
-        if not hasattr(self, "git_graph_canvas") or not self.git_repo_root:
-            return
-        canvas = self.git_graph_canvas
-        canvas.delete("all")
-
-        try:
-            # Get commit history with graph info
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "log",
-                 "--all", "--pretty=format:%h\x1f%s\x1f%an\x1f%P\x1f%d",
-                 "-30"],
-                capture_output=True, text=True, timeout=5, check=False)
-            if result.returncode != 0:
-                return
-
-            commits = []
-            for line in result.stdout.strip().split("\n"):
-                if not line:
-                    continue
-                parts = line.split("\x1f")
-                if len(parts) < 4:
-                    continue
-                sha, msg, author, parents = parts[0], parts[1], parts[2], parts[3]
-                refs = parts[4] if len(parts) > 4 else ""
-                commits.append({
-                    "sha": sha, "msg": msg, "author": author,
-                    "parents": parents.split() if parents else [],
-                    "refs": refs.strip()
-                })
-
-            if not commits:
-                canvas.create_text(20, 20, anchor="nw", text="No commits",
-                                  fill=FG_DIM, font=("Segoe UI", 9))
-                return
-
-            # Assign columns (simple lane assignment)
-            sha_to_idx = {c["sha"]: i for i, c in enumerate(commits)}
-            lanes: dict[int, int] = {}  # commit idx -> lane
-            active_lanes: dict[int, str] = {}  # lane -> expected next sha
-
-            def find_free_lane() -> int:
-                for i in range(20):
-                    if i not in active_lanes:
-                        return i
-                return len(active_lanes)
-
-            for i, commit in enumerate(commits):
-                sha = commit["sha"]
-                # Find existing lane reserved for this commit
-                lane = None
-                for ln, expected in list(active_lanes.items()):
-                    if expected == sha:
-                        lane = ln
-                        del active_lanes[ln]
-                        break
-                if lane is None:
-                    lane = find_free_lane()
-                lanes[i] = lane
-                # Reserve lane for first parent
-                if commit["parents"]:
-                    active_lanes[lane] = commit["parents"][0]
-
-            # Draw
-            row_h = 28
-            col_w = 18
-            x_offset = 12
-            text_x = x_offset + (max(lanes.values()) + 1) * col_w + 12
-
-            colors = ["#4db8ff", "#52d97f", "#dcdcaa", "#ff9966", "#d99dff",
-                     "#ff5555", "#86d4ff", "#b5cea8"]
-
-            # Draw lines first (parent → child)
-            for i, commit in enumerate(commits):
-                lane_i = lanes[i]
-                y_i = 16 + i * row_h
-                for parent_sha in commit["parents"]:
-                    if parent_sha in sha_to_idx:
-                        j = sha_to_idx[parent_sha]
-                        lane_j = lanes[j]
-                        y_j = 16 + j * row_h
-                        x_i = x_offset + lane_i * col_w
-                        x_j = x_offset + lane_j * col_w
-                        color = colors[lane_j % len(colors)]
-                        if lane_i == lane_j:
-                            canvas.create_line(x_i, y_i, x_j, y_j,
-                                              fill=color, width=2)
-                        else:
-                            # Diagonal merge line
-                            canvas.create_line(
-                                x_i, y_i, x_i, y_i + row_h // 2,
-                                x_j, y_i + row_h // 2, x_j, y_j,
-                                fill=color, width=2, smooth=True)
-
-            # Draw nodes
-            for i, commit in enumerate(commits):
-                lane = lanes[i]
-                y = 16 + i * row_h
-                x = x_offset + lane * col_w
-                color = colors[lane % len(colors)]
-
-                # Node circle
-                canvas.create_oval(x - 5, y - 5, x + 5, y + 5,
-                                  fill=color, outline=BG, width=2)
-
-                # Refs (branches/tags)
-                ref_text = ""
-                refs = commit["refs"]
-                if refs:
-                    # refs is like " (HEAD -> main, origin/main, tag: v1.0)"
-                    ref_text = refs.strip("()").strip()
-
-                # Commit message
-                msg = commit["msg"]
-                if len(msg) > 35:
-                    msg = msg[:32] + "..."
-
-                # Format: refs (if any) + message + author
-                tx = text_x
-                if ref_text:
-                    for ref in ref_text.split(", "):
-                        ref_clean = ref.strip()
-                        is_head = "HEAD" in ref_clean
-                        ref_color = BLUE if is_head else GREEN
-                        # Draw ref badge
-                        text_id = canvas.create_text(
-                            tx, y, anchor="w", text=f" {ref_clean} ",
-                            fill="#fff" if is_head else BG,
-                            font=("Segoe UI", 8, "bold"))
-                        bbox = canvas.bbox(text_id)
-                        if bbox:
-                            canvas.create_rectangle(
-                                bbox[0], bbox[1], bbox[2], bbox[3],
-                                fill=ref_color, outline=ref_color)
-                            canvas.delete(text_id)
-                            canvas.create_text(
-                                (bbox[0] + bbox[2]) / 2, y, text=f" {ref_clean} ",
-                                fill="#fff" if is_head else "#000",
-                                font=("Segoe UI", 8, "bold"))
-                            tx = bbox[2] + 4
-
-                canvas.create_text(tx, y, anchor="w",
-                                  text=msg, fill=FG,
-                                  font=("Segoe UI", 9))
-                canvas.create_text(tx, y + 12, anchor="w",
-                                  text=f"{commit['author']} · {commit['sha']}",
-                                  fill=FG_DIM, font=("Segoe UI", 8))
-
-            # Update scroll region
-            total_h = 16 + len(commits) * row_h + 20
-            canvas.configure(scrollregion=(0, 0, 600, total_h))
-
-        except Exception as e:
-            canvas.create_text(20, 20, anchor="nw",
-                              text=f"Graph error: {e}",
-                              fill=RED, font=("Segoe UI", 9))
 
     # ── editor header ─────────────────────────────────────────────────────────
     def _build_editor_header(self, parent: ttk.Frame) -> None:
@@ -2394,60 +1065,12 @@ class NexaStudio(tk.Tk):
 
     # ── output notebook (all tabs visible) ────────────────────────────────────
     def _build_notebook(self, parent: ttk.Frame) -> None:
-        parent.rowconfigure(1, weight=1)
+        parent.rowconfigure(0, weight=1)
         parent.columnconfigure(0, weight=1)
 
-        # ── Top row: group selector (same row as editor header) ──────────
-        tab_bar = ttk.Frame(parent, style="Panel.TFrame", padding=(10, 6))
-        tab_bar.grid(row=0, column=0, sticky="ew")
+        self.notebook = ttk.Notebook(parent)
+        self.notebook.grid(row=0, column=0, sticky="nsew")
 
-        ttk.Label(tab_bar, text="View:", style="Dim.TLabel",
-                 foreground=FG_DIM).pack(side=tk.LEFT, padx=(0, 6))
-
-        self._tab_group_var = tk.StringVar(value="全部")
-        self._tab_group_var.trace_add("write",
-            lambda *_: self._apply_tab_visibility())
-        group_cb = ttk.Combobox(tab_bar, textvariable=self._tab_group_var,
-                                values=("主要", "前端", "后端", "全部"),
-                                state="readonly", width=8)
-        group_cb.pack(side=tk.LEFT)
-
-        # ── Main area: vertical icon column + content frame ───────────────
-        body = ttk.Frame(parent, style="Root.TFrame")
-        body.grid(row=1, column=0, sticky="nsew")
-        body.rowconfigure(0, weight=1)
-        body.columnconfigure(1, weight=1)
-
-        # Vertical icon bar
-        icon_col = ttk.Frame(body, style="Toolbar.TFrame", width=38)
-        icon_col.grid(row=0, column=0, sticky="ns")
-        icon_col.pack_propagate(False)
-
-        # Content area where output_frames are swapped in/out
-        self._output_content = ttk.Frame(body, style="Root.TFrame")
-        self._output_content.grid(row=0, column=1, sticky="nsew")
-        self._output_content.rowconfigure(0, weight=1)
-        self._output_content.columnconfigure(0, weight=1)
-
-        # Create vertical tab buttons
-        self._output_buttons: dict[str, tk.Button] = {}
-        self._tab_visible_vars: dict[str, tk.BooleanVar] = {}
-        self._active_output: str | None = None
-
-        for name in OUTPUT_ORDER:
-            var = tk.BooleanVar(value=True)
-            self._tab_visible_vars[name] = var
-            btn = tk.Button(
-                icon_col, text=OUTPUT_ICONS.get(name, "•"),
-                font=("Segoe UI", 14), fg=FG_DIM, bg=PANEL_2,
-                relief=tk.FLAT, padx=6, pady=8,
-                activebackground=ACCENT, activeforeground="#fff",
-                command=lambda n=name: self._show_output(n))
-            btn.pack(side=tk.TOP, fill=tk.X)
-            _Tooltip(btn, name)
-            self._output_buttons[name] = btn
-
-        # Create all output content frames (parented to _output_content)
         self._add_table_tab("Tokens",   ("#", "Kind", "Lexeme", "Line:Col"),
                             (50, 120, 260, 90))
         self._add_graph_text_tab("AST")
@@ -2462,61 +1085,6 @@ class NexaStudio(tk.Tk):
                             (150, 90, 360))
 
         self._configure_code_tags()
-        # Apply initial visibility and show first available
-        self.after(50, lambda: self._apply_tab_visibility())
-        self.after(60, lambda: self._show_output("AST"))
-
-    def _show_output(self, name: str) -> None:
-        frame = self.output_frames.get(name)
-        if frame is None:
-            return
-        # Hide all
-        for n, f in self.output_frames.items():
-            try:
-                f.grid_remove()
-            except tk.TclError:
-                pass
-        # Show selected
-        frame.grid(row=0, column=0, sticky="nsew")
-        self._active_output = name
-        # Update button highlight
-        for n, btn in self._output_buttons.items():
-            if n == name:
-                btn.configure(fg=BLUE, bg=PANEL_3)
-            else:
-                btn.configure(fg=FG_DIM, bg=PANEL_2)
-
-    def _apply_tab_visibility(self, manual: bool = False) -> None:
-        if not hasattr(self, "_output_buttons"):
-            return
-
-        groups = {
-            "主要":  {"AST", "CFG", "ASM"},
-            "前端":  {"Tokens", "AST", "Symbols", "HIR"},
-            "后端":  {"CFG", "ASM", "LLVM", "Timeline"},
-            "全部":  set(OUTPUT_ORDER),
-        }
-
-        group = self._tab_group_var.get()
-        visible = groups.get(group, groups["全部"])
-
-        # Show/hide vertical tab buttons
-        for name, btn in self._output_buttons.items():
-            try:
-                btn.pack_forget()
-            except tk.TclError:
-                pass
-        for name in OUTPUT_ORDER:
-            if name in visible:
-                self._output_buttons[name].pack(side=tk.TOP, fill=tk.X)
-
-        # If currently active tab got hidden, pick first visible one
-        active = getattr(self, "_active_output", None)
-        if active not in visible:
-            for name in OUTPUT_ORDER:
-                if name in visible:
-                    self._show_output(name)
-                    break
 
     # ── bottom diagnostics ────────────────────────────────────────────────────
     def _build_diagnostics(self, parent: ttk.Frame) -> None:
@@ -2591,11 +1159,6 @@ class NexaStudio(tk.Tk):
     def _bind_keys(self) -> None:
         self.bind("<Control-Return>",  lambda _e: self.compile_now(run=False, trace=False))
         self.bind("<F5>",              lambda _e: self.compile_now(run=True,  trace=True))
-        self.bind("<F9>",              lambda _e: self._toggle_breakpoint_at_cursor())
-        self.bind("<Control-Shift-F>", lambda _e: self._show_left_panel("search"))
-        self.bind("<Control-e>",       lambda _e: self._show_left_panel("explorer"))
-        self.bind("<Control-Shift-G>", lambda _e: self._show_left_panel("source_control"))
-        self.bind("<Control-Shift-D>", lambda _e: self._show_left_panel("debug"))
         self.bind("<Control-n>",       lambda _e: self._new_file())
         self.bind("<Control-o>",       lambda _e: self.open_file())
         self.bind("<Control-Shift-O>", lambda _e: self.open_folder())
@@ -2716,9 +1279,9 @@ class NexaStudio(tk.Tk):
             button.configure(text=self._t(key))
         for key, label in self.static_labels.items():
             label.configure(text=self._t(key))
-        if hasattr(self, "_output_buttons"):
-            for name, btn in self._output_buttons.items():
-                btn.configure(text=OUTPUT_ICONS.get(name, "•"))
+        if hasattr(self, "notebook"):
+            for name, frame in self.output_frames.items():
+                self.notebook.tab(frame, text=self._output_label(name))
         if hasattr(self, "bottom_notebook"):
             for name, frame in self.bottom_frames.items():
                 self.bottom_notebook.tab(frame, text=self._bottom_label(name))
@@ -2741,7 +1304,7 @@ class NexaStudio(tk.Tk):
 
     # ── tab helpers ───────────────────────────────────────────────────────────
     def _add_text_tab(self, name: str) -> None:
-        frame = ttk.Frame(self._output_content, style="Root.TFrame")
+        frame = ttk.Frame(self.notebook, style="Root.TFrame")
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
         text = tk.Text(
@@ -2756,11 +1319,12 @@ class NexaStudio(tk.Tk):
         text.grid(row=0, column=0, sticky="nsew")
         yscroll.grid(row=0, column=1, sticky="ns")
         xscroll.grid(row=1, column=0, sticky="ew")
+        self.notebook.add(frame, text=self._output_label(name))
         self.output_frames[name] = frame
         self.text_views[name] = text
 
     def _add_graph_text_tab(self, name: str) -> None:
-        frame = ttk.Frame(self._output_content, style="Root.TFrame")
+        frame = ttk.Frame(self.notebook, style="Root.TFrame")
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
         pane = ttk.PanedWindow(frame, orient=tk.VERTICAL)
@@ -2796,6 +1360,7 @@ class NexaStudio(tk.Tk):
         xscroll.grid(row=1, column=0, sticky="ew")
         pane.add(txt_frame, weight=1)
 
+        self.notebook.add(frame, text=self._output_label(name))
         self.output_frames[name] = frame
         self.text_views[name] = text
         self.graph_canvases[name] = canvas
@@ -2803,7 +1368,7 @@ class NexaStudio(tk.Tk):
 
     def _add_table_tab(self, name: str, columns: tuple[str, ...],
                        widths: tuple[int, ...]) -> None:
-        frame = ttk.Frame(self._output_content, style="Root.TFrame")
+        frame = ttk.Frame(self.notebook, style="Root.TFrame")
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
         table = ttk.Treeview(frame, columns=columns, show="headings")
@@ -2819,6 +1384,7 @@ class NexaStudio(tk.Tk):
         table.grid(row=0, column=0, sticky="nsew")
         yscroll.grid(row=0, column=1, sticky="ns")
         xscroll.grid(row=1, column=0, sticky="ew")
+        self.notebook.add(frame, text=self._output_label(name))
         self.output_frames[name] = frame
         self.tables[name] = table
 
@@ -3044,12 +1610,6 @@ class NexaStudio(tk.Tk):
         self.editor.insert("1.0", text)
         self.current_file = target
         self.file_label.configure(text=str(target))
-
-        # Track open file
-        if target not in self.open_files:
-            self.open_files.append(target)
-        self._refresh_open_editors()
-
         self._highlight_source()
         self.compile_now(run=False, trace=False)
 
