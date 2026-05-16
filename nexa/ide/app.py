@@ -471,7 +471,9 @@ class NexaStudio(tk.Tk):
         self.style.configure("Accent.TButton", background=ACCENT, foreground="#ffffff",
                              bordercolor=ACCENT, focusthickness=0, padding=(12, 5))
         self.style.map("Accent.TButton",
-                       background=[("active", ACCENT_H), ("pressed", "#005a9e")])
+                       background=[("active", ACCENT_H), ("pressed", "#005a9e")],
+                       foreground=[("disabled", "#c8c8c8"), ("active", "#ffffff"),
+                                   ("pressed", "#ffffff"), ("!disabled", "#ffffff")])
         self.style.configure("TButton", background=PANEL_2, foreground=FG,
                              bordercolor=BORDER, padding=(10, 5),
                              focusthickness=0, relief="flat", font=FONT_UI)
@@ -1380,12 +1382,18 @@ class NexaStudio(tk.Tk):
         canvas.configure(yscrollcommand=scrollbar.set)
 
         self.git_content = ttk.Frame(canvas, style="Panel.TFrame")
-        canvas.create_window((0, 0), window=self.git_content, anchor="nw")
+        content_window = canvas.create_window((0, 0), window=self.git_content, anchor="nw")
 
         def _on_frame_configure(event=None) -> None:
             canvas.configure(scrollregion=canvas.bbox("all"))
 
+        def _on_canvas_configure(event) -> None:
+            canvas.itemconfigure(content_window, width=event.width)
+            if hasattr(self, "git_tree"):
+                self._resize_git_changes_tree(event.width)
+
         self.git_content.bind("<Configure>", _on_frame_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
 
         # Branch info section
         self._build_git_branch_section(self.git_content)
@@ -1450,8 +1458,8 @@ class NexaStudio(tk.Tk):
                                      show="tree headings")
         self.git_tree.heading("#0", text="File")
         self.git_tree.heading("status", text="")
-        self.git_tree.column("#0", width=180)
-        self.git_tree.column("status", width=60)
+        self.git_tree.column("#0", width=180, minwidth=80, stretch=True)
+        self.git_tree.column("status", width=76, minwidth=0, stretch=False)
         self.git_tree.tag_configure("modified", foreground=YELLOW)
         self.git_tree.tag_configure("added", foreground=GREEN)
         self.git_tree.tag_configure("deleted", foreground=RED)
@@ -1462,6 +1470,7 @@ class NexaStudio(tk.Tk):
 
         self.git_tree.grid(row=0, column=0, sticky="nsew")
         yscroll.grid(row=0, column=1, sticky="ns")
+        tree_frame.bind("<Configure>", lambda e: self._resize_git_changes_tree(e.width))
 
     def _build_git_commit_section(self, parent: ttk.Frame) -> None:
         sec = ttk.Frame(parent, style="Panel.TFrame", padding=(8, 6))
@@ -1477,11 +1486,43 @@ class NexaStudio(tk.Tk):
             bg="#2d2d30", fg=FG, insertbackground=FG,
             relief=tk.FLAT, padx=6, pady=4)
         self.git_msg_text.pack(fill=tk.X, pady=(0, 6))
-        self.git_msg_text.insert("1.0", self._t("git_commit_msg"))
+        self.git_msg_placeholder_active = False
+        self.git_msg_text.bind("<FocusIn>", self._clear_git_msg_placeholder)
+        self.git_msg_text.bind("<FocusOut>", self._restore_git_msg_placeholder)
+        self._set_git_msg_placeholder()
 
         # Commit button
         ttk.Button(sec, text="✓ Commit", style="Accent.TButton",
                    command=self._git_commit).pack(fill=tk.X)
+
+    def _resize_git_changes_tree(self, width: int) -> None:
+        if not hasattr(self, "git_tree"):
+            return
+        status_w = 76
+        file_w = max(80, width - status_w - 28)
+        self.git_tree.column("#0", width=file_w)
+        self.git_tree.column("status", width=status_w)
+
+    def _set_git_msg_placeholder(self) -> None:
+        self.git_msg_placeholder_active = True
+        self.git_msg_text.configure(fg=FG_DIM)
+        self.git_msg_text.delete("1.0", tk.END)
+        self.git_msg_text.insert("1.0", self._t("git_commit_msg"))
+
+    def _clear_git_msg_placeholder(self, _event=None) -> None:
+        if getattr(self, "git_msg_placeholder_active", False):
+            self.git_msg_placeholder_active = False
+            self.git_msg_text.configure(fg=FG)
+            self.git_msg_text.delete("1.0", tk.END)
+
+    def _restore_git_msg_placeholder(self, _event=None) -> None:
+        if not self.git_msg_text.get("1.0", tk.END).strip():
+            self._set_git_msg_placeholder()
+
+    def _get_git_commit_message(self) -> str:
+        if getattr(self, "git_msg_placeholder_active", False):
+            return ""
+        return self.git_msg_text.get("1.0", tk.END).strip()
 
     def _refresh_git_status(self) -> None:
         try:
@@ -1605,8 +1646,8 @@ class NexaStudio(tk.Tk):
             messagebox.showerror("Error", self._t("git_no_repo"))
             return
 
-        msg = self.git_msg_text.get("1.0", tk.END).strip()
-        if not msg or msg == self._t("git_commit_msg"):
+        msg = self._get_git_commit_message()
+        if not msg:
             messagebox.showwarning("Warning", "Please enter a commit message")
             return
 
@@ -1622,8 +1663,7 @@ class NexaStudio(tk.Tk):
                 capture_output=True, text=True, timeout=5, check=False)
 
             if result.returncode == 0:
-                self.git_msg_text.delete("1.0", tk.END)
-                self.git_msg_text.insert("1.0", self._t("git_commit_msg"))
+                self._set_git_msg_placeholder()
                 self._refresh_git_status()
                 messagebox.showinfo("Success", "Commit successful")
             else:
@@ -2181,16 +2221,16 @@ class NexaStudio(tk.Tk):
                 return
 
             commits = []
-            for line in result.stdout.strip().split("\n"):
+            for line in (result.stdout or "").splitlines():
                 if not line:
                     continue
-                parts = line.split("\x1f")
+                parts = [(part or "") for part in line.split("\x1f")]
                 if len(parts) < 4:
                     continue
                 sha, msg, author, parents = parts[0], parts[1], parts[2], parts[3]
                 refs = parts[4] if len(parts) > 4 else ""
                 commits.append({
-                    "sha": sha, "msg": msg, "author": author,
+                    "sha": sha, "msg": msg, "author": author or "Unknown",
                     "parents": parents.split() if parents else [],
                     "refs": refs.strip()
                 })
@@ -2277,7 +2317,7 @@ class NexaStudio(tk.Tk):
                     ref_text = refs.strip("()").strip()
 
                 # Commit message
-                msg = commit["msg"]
+                msg = commit["msg"] or "(no commit message)"
                 if len(msg) > 35:
                     msg = msg[:32] + "..."
 
@@ -2696,6 +2736,9 @@ class NexaStudio(tk.Tk):
             self.bottom_toggle.configure(
                 text=self._t("expand_bottom") if self._bottom_collapsed
                 else self._t("collapse_bottom"))
+        if (hasattr(self, "git_msg_text")
+                and getattr(self, "git_msg_placeholder_active", False)):
+            self._set_git_msg_placeholder()
         if hasattr(self, "editor_menu"):
             self._refresh_editor_context_menu()
         if hasattr(self, "_menubar"):
