@@ -375,6 +375,8 @@ class NexaStudio(tk.Tk):
         self.git_repo_root: Path | None = None
         self.git_status: dict = {}
         self.git_branch: str = ""
+        self.git_panel_mode: str = ""
+        self.git_operation_buttons: list[ttk.Button] = []
 
         self.code_font = self._choose_code_font()
         self.lang = tk.StringVar(value="zh")
@@ -1395,6 +1397,22 @@ class NexaStudio(tk.Tk):
         self.git_content.bind("<Configure>", _on_frame_configure)
         canvas.bind("<Configure>", _on_canvas_configure)
 
+        def _on_canvas_wheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)) * 3, "units")
+            return "break"
+
+        canvas.bind("<MouseWheel>", _on_canvas_wheel)
+        self._build_git_normal_ui()
+
+    def _clear_git_content(self) -> None:
+        for child in self.git_content.winfo_children():
+            child.destroy()
+
+    def _build_git_normal_ui(self) -> None:
+        self._clear_git_content()
+        self.git_panel_mode = "normal"
+        self.git_operation_buttons = []
+
         # Branch info section
         self._build_git_branch_section(self.git_content)
 
@@ -1432,12 +1450,17 @@ class NexaStudio(tk.Tk):
         # Branch buttons
         btn_frame = ttk.Frame(sec, style="Panel.TFrame")
         btn_frame.pack(fill=tk.X, pady=(0, 4))
-        ttk.Button(btn_frame, text="⬇ Pull", style="Small.TButton",
-                   command=self._git_pull).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="⬆ Push", style="Small.TButton",
-                   command=self._git_push).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="⟳ Sync", style="Small.TButton",
-                   command=self._git_sync).pack(side=tk.LEFT, padx=2)
+        actions = (
+            ("↓ Pull", self._git_pull),
+            ("↑ Push", self._git_push),
+            ("↻ Sync", self._git_sync),
+        )
+        for idx, (text, command) in enumerate(actions):
+            btn_frame.columnconfigure(idx, weight=1, uniform="git_actions")
+            btn = ttk.Button(btn_frame, text=text, style="Small.TButton",
+                             command=command)
+            btn.grid(row=0, column=idx, sticky="ew", padx=(0 if idx == 0 else 2, 0))
+            self.git_operation_buttons.append(btn)
 
     def _build_git_changes_section(self, parent: ttk.Frame) -> None:
         sec = ttk.Frame(parent, style="Panel.TFrame", padding=(8, 6))
@@ -1526,19 +1549,18 @@ class NexaStudio(tk.Tk):
 
     def _refresh_git_status(self) -> None:
         try:
-            if not hasattr(self, "git_branch_label"):
+            if not hasattr(self, "git_content"):
                 return
 
             self._detect_git_repo()
             if not self.git_repo_root:
-                self.git_branch_label.configure(
-                    text=self._t("git_no_repo"), foreground=RED)
-                if hasattr(self, "git_tree"):
-                    self.git_tree.delete(*self.git_tree.get_children())
-                # Show init UI
-                if hasattr(self, "git_content"):
-                    self._show_git_init_ui()
+                self._show_git_init_ui()
                 return
+
+            if (self.git_panel_mode != "normal"
+                    or not hasattr(self, "git_branch_label")
+                    or not self.git_branch_label.winfo_exists()):
+                self._build_git_normal_ui()
 
             # Get current branch
             result = subprocess.run(
@@ -1578,13 +1600,34 @@ class NexaStudio(tk.Tk):
                     text=f"Error: {str(e)[:30]}", foreground=RED)
 
     def _detect_git_repo(self) -> None:
-        current = self.workspace_root
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(self.workspace_root), "rev-parse", "--show-toplevel"],
+                capture_output=True, text=True, timeout=5, check=False)
+            if result.returncode == 0 and result.stdout.strip():
+                self.git_repo_root = Path(result.stdout.strip()).resolve()
+                return
+        except FileNotFoundError:
+            self.git_repo_root = None
+            return
+
+        current = self.workspace_root.resolve()
         for _ in range(10):
             if (current / ".git").exists():
                 self.git_repo_root = current
                 return
+            if current.parent == current:
+                break
             current = current.parent
         self.git_repo_root = None
+
+    def _ensure_git_repo(self) -> bool:
+        self._detect_git_repo()
+        if self.git_repo_root:
+            return True
+        self._show_git_init_ui()
+        messagebox.showwarning("Git", self._t("git_no_repo"))
+        return False
 
     def _update_commits_info(self) -> None:
         if not self.git_repo_root:
@@ -1642,8 +1685,7 @@ class NexaStudio(tk.Tk):
             self.git_tree.insert("", tk.END, text=filename, values=(status_text,), tag=tag)
 
     def _git_commit(self) -> None:
-        if not self.git_repo_root:
-            messagebox.showerror("Error", self._t("git_no_repo"))
+        if not self._ensure_git_repo():
             return
 
         msg = self._get_git_commit_message()
@@ -1652,10 +1694,24 @@ class NexaStudio(tk.Tk):
             return
 
         try:
+            status = subprocess.run(
+                ["git", "-C", str(self.git_repo_root), "status", "--porcelain"],
+                capture_output=True, text=True, timeout=5, check=False)
+            if status.returncode != 0:
+                messagebox.showerror("Error", status.stderr or "Git status failed")
+                return
+            if not status.stdout.strip():
+                messagebox.showinfo("Git", "No changes to commit")
+                self._refresh_git_status()
+                return
+
             # Stage all changes
-            subprocess.run(
+            add_result = subprocess.run(
                 ["git", "-C", str(self.git_repo_root), "add", "-A"],
-                capture_output=True, timeout=5, check=False)
+                capture_output=True, text=True, timeout=5, check=False)
+            if add_result.returncode != 0:
+                messagebox.showerror("Error", add_result.stderr or "Git add failed")
+                return
 
             # Commit
             result = subprocess.run(
@@ -1673,8 +1729,7 @@ class NexaStudio(tk.Tk):
             messagebox.showerror("Error", f"Commit failed: {str(e)}")
 
     def _git_push(self) -> None:
-        if not self.git_repo_root:
-            messagebox.showerror("Error", self._t("git_no_repo"))
+        if not self._ensure_git_repo():
             return
 
         try:
@@ -1691,8 +1746,7 @@ class NexaStudio(tk.Tk):
             messagebox.showerror("Error", f"Push failed: {str(e)}")
 
     def _git_pull(self) -> None:
-        if not self.git_repo_root:
-            messagebox.showerror("Error", self._t("git_no_repo"))
+        if not self._ensure_git_repo():
             return
 
         try:
@@ -1708,8 +1762,7 @@ class NexaStudio(tk.Tk):
             messagebox.showerror("Error", f"Pull failed: {str(e)}")
 
     def _git_sync(self) -> None:
-        if not self.git_repo_root:
-            messagebox.showerror("Error", self._t("git_no_repo"))
+        if not self._ensure_git_repo():
             return
 
         try:
@@ -1730,9 +1783,10 @@ class NexaStudio(tk.Tk):
             messagebox.showerror("Error", f"Sync failed: {str(e)}")
 
     def _show_git_init_ui(self) -> None:
-        # Clear existing content
-        for child in self.git_content.winfo_children():
-            child.destroy()
+        if self.git_panel_mode == "init":
+            return
+        self._clear_git_content()
+        self.git_panel_mode = "init"
 
         # Show initialization message and button
         frame = ttk.Frame(self.git_content, style="Panel.TFrame")
@@ -1755,6 +1809,7 @@ class NexaStudio(tk.Tk):
 
             if result.returncode == 0:
                 self.git_repo_root = self.workspace_root
+                self._build_git_normal_ui()
                 self._refresh_git_status()
                 messagebox.showinfo("Success", "Repository initialized")
             else:
@@ -2182,11 +2237,18 @@ class NexaStudio(tk.Tk):
         graph_frame.rowconfigure(1, weight=1)
         graph_frame.columnconfigure(0, weight=1)
 
-        lbl = ttk.Label(graph_frame, text="▾ COMMIT GRAPH",
-                       font=("Segoe UI", 9, "bold"),
-                       foreground=FG_DIM, style="Dim.TLabel",
-                       padding=(8, 4))
-        lbl.grid(row=0, column=0, sticky="ew")
+        toolbar = ttk.Frame(graph_frame, style="Panel.TFrame", padding=(6, 2))
+        toolbar.grid(row=0, column=0, sticky="ew")
+        toolbar.columnconfigure(0, weight=1)
+        ttk.Label(toolbar, text="⌄ GRAPH",
+                  font=("Segoe UI", 9, "bold"),
+                  foreground=FG_DIM, style="Dim.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Button(toolbar, text="↓", width=3, style="Small.TButton",
+                   command=self._git_pull).grid(row=0, column=1, padx=1)
+        ttk.Button(toolbar, text="↑", width=3, style="Small.TButton",
+                   command=self._git_push).grid(row=0, column=2, padx=1)
+        ttk.Button(toolbar, text="↻", width=3, style="Small.TButton",
+                   command=self._refresh_git_status).grid(row=0, column=3, padx=1)
 
         canvas_container = ttk.Frame(graph_frame, style="Panel.TFrame")
         canvas_container.grid(row=1, column=0, sticky="nsew")
@@ -2200,11 +2262,13 @@ class NexaStudio(tk.Tk):
                                command=self.git_graph_canvas.yview)
         gscroll.grid(row=0, column=1, sticky="ns")
         self.git_graph_canvas.configure(yscrollcommand=gscroll.set)
-        self.git_graph_canvas.bind("<MouseWheel>",
-            lambda e: self.git_graph_canvas.yview_scroll(
-                int(-1 * (e.delta / 120)), "units"))
+        self.git_graph_canvas.bind("<MouseWheel>", self._scroll_git_graph)
 
-    def _refresh_git_graph(self) -> None:
+    def _scroll_git_graph(self, event) -> str:
+        self.git_graph_canvas.yview_scroll(int(-1 * (event.delta / 120)) * 3, "units")
+        return "break"
+
+    def _refresh_git_graph_legacy(self) -> None:
         if not hasattr(self, "git_graph_canvas") or not self.git_repo_root:
             return
         canvas = self.git_graph_canvas
@@ -2362,6 +2426,158 @@ class NexaStudio(tk.Tk):
                               fill=RED, font=("Segoe UI", 9))
 
     # ── editor header ─────────────────────────────────────────────────────────
+    def _refresh_git_graph(self) -> None:
+        if not hasattr(self, "git_graph_canvas") or not self.git_repo_root:
+            return
+        canvas = self.git_graph_canvas
+        canvas.delete("all")
+
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(self.git_repo_root), "log", "--all",
+                 "--pretty=format:%H%x1f%h%x1f%s%x1f%an%x1f%P%x1f%D", "-60"],
+                capture_output=True, text=True, timeout=5, check=False)
+            if result.returncode != 0:
+                canvas.create_text(14, 18, anchor="nw", text="No commit history",
+                                  fill=FG_DIM, font=("Segoe UI", 9))
+                return
+
+            commits = []
+            for line in (result.stdout or "").splitlines():
+                parts = [(part or "") for part in line.split("\x1f")]
+                if len(parts) < 5:
+                    continue
+                full_sha, short_sha, msg, author, parents = parts[:5]
+                commits.append({
+                    "sha": full_sha,
+                    "short": short_sha,
+                    "msg": msg or "(no commit message)",
+                    "author": author or "Unknown",
+                    "parents": parents.split() if parents else [],
+                    "refs": parts[5].strip() if len(parts) > 5 else "",
+                })
+
+            if not commits:
+                canvas.create_text(14, 18, anchor="nw", text="No commits",
+                                  fill=FG_DIM, font=("Segoe UI", 9))
+                canvas.configure(scrollregion=(0, 0, 220, 80))
+                return
+
+            sha_to_idx = {commit["sha"]: idx for idx, commit in enumerate(commits)}
+            lanes: dict[int, int] = {}
+            active_lanes: dict[int, str] = {}
+
+            def find_free_lane() -> int:
+                lane = 0
+                while lane in active_lanes:
+                    lane += 1
+                return lane
+
+            for idx, commit in enumerate(commits):
+                lane = None
+                for active_lane, expected_sha in list(active_lanes.items()):
+                    if expected_sha == commit["sha"]:
+                        lane = active_lane
+                        del active_lanes[active_lane]
+                        break
+                if lane is None:
+                    lane = find_free_lane()
+                lanes[idx] = lane
+                if commit["parents"]:
+                    active_lanes[lane] = commit["parents"][0]
+                    for extra_parent in commit["parents"][1:]:
+                        active_lanes[find_free_lane()] = extra_parent
+
+            row_h = 22
+            col_w = 12
+            x_offset = 10
+            max_lane = max(lanes.values())
+            text_x = x_offset + (max_lane + 1) * col_w + 14
+            canvas_w = max(canvas.winfo_width(), 220)
+            max_chars = max(10, int((canvas_w - text_x - 46) / 7))
+            colors = ["#4db8ff", "#52d97f", "#dcdcaa", "#ff9966", "#d99dff",
+                      "#ff5555", "#86d4ff", "#b5cea8"]
+
+            for idx, commit in enumerate(commits):
+                lane_i = lanes[idx]
+                y_i = 16 + idx * row_h
+                x_i = x_offset + lane_i * col_w
+                for parent_sha in commit["parents"]:
+                    if parent_sha not in sha_to_idx:
+                        continue
+                    parent_idx = sha_to_idx[parent_sha]
+                    lane_j = lanes[parent_idx]
+                    y_j = 16 + parent_idx * row_h
+                    x_j = x_offset + lane_j * col_w
+                    color = colors[lane_j % len(colors)]
+                    if lane_i == lane_j:
+                        canvas.create_line(x_i, y_i, x_j, y_j, fill=color, width=2)
+                    else:
+                        mid_y = y_i + row_h // 2
+                        canvas.create_line(x_i, y_i, x_i, mid_y,
+                                           x_j, mid_y, x_j, y_j,
+                                           fill=color, width=2)
+
+            for idx, commit in enumerate(commits):
+                lane = lanes[idx]
+                y = 16 + idx * row_h
+                x = x_offset + lane * col_w
+                color = colors[lane % len(colors)]
+                canvas.create_oval(x - 5, y - 5, x + 5, y + 5,
+                                  fill=BG, outline=color, width=2)
+
+                tx = text_x
+                refs = self._compact_git_refs(commit["refs"])
+                if refs:
+                    tx = self._draw_git_ref_badge(canvas, tx, y, refs[0]) + 5
+
+                msg = commit["msg"]
+                if len(msg) > max_chars:
+                    msg = msg[:max(0, max_chars - 3)] + "..."
+                msg_id = canvas.create_text(tx, y, anchor="w", text=msg,
+                                            fill=FG, font=("Segoe UI", 9, "bold"))
+                bbox = canvas.bbox(msg_id)
+                author_x = (bbox[2] + 6) if bbox else (tx + len(msg) * 7 + 6)
+                canvas.create_text(author_x, y, anchor="w", text=commit["author"],
+                                  fill=FG_DIM, font=("Segoe UI", 8))
+
+            total_h = 16 + len(commits) * row_h + 20
+            canvas.configure(scrollregion=(0, 0, max(canvas_w, text_x + 260), total_h))
+        except Exception as e:
+            canvas.create_text(14, 18, anchor="nw",
+                              text=f"Graph error: {e}",
+                              fill=RED, font=("Segoe UI", 9))
+
+    def _compact_git_refs(self, refs: str) -> list[str]:
+        cleaned: list[str] = []
+        for ref in refs.split(","):
+            ref = ref.strip()
+            if not ref:
+                continue
+            if "HEAD ->" in ref:
+                ref = ref.split("HEAD ->", 1)[1].strip()
+            elif ref.startswith("origin/"):
+                continue
+            elif ref.startswith("tag: "):
+                ref = ref[5:].strip()
+            if ref and ref not in cleaned:
+                cleaned.append(ref)
+        return cleaned[:2]
+
+    def _draw_git_ref_badge(self, canvas: tk.Canvas, x: int, y: int, text: str) -> int:
+        label = f" {text} "
+        text_id = canvas.create_text(x, y, anchor="w", text=label,
+                                     fill="#ffffff", font=("Segoe UI", 8, "bold"))
+        bbox = canvas.bbox(text_id)
+        if not bbox:
+            return x
+        canvas.create_rectangle(bbox[0] - 1, bbox[1] - 1, bbox[2] + 1, bbox[3] + 1,
+                                fill=SEL_BG, outline=BLUE)
+        canvas.delete(text_id)
+        canvas.create_text(x, y, anchor="w", text=label,
+                           fill="#ffffff", font=("Segoe UI", 8, "bold"))
+        return bbox[2] + 2
+
     def _build_editor_header(self, parent: ttk.Frame) -> None:
         header = ttk.Frame(parent, style="Panel.TFrame", padding=(10, 6))
         header.grid(row=0, column=0, sticky="ew")
