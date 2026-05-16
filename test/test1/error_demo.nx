@@ -1,0 +1,10 @@
+fn broken(a: i32) -> i32 {
+  let b: i32 = a + ;
+  return b
+}
+
+fn main() -> i32 {
+  let x = broken(5);
+  print(x);
+  return 0;
+}

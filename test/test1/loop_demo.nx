@@ -1,0 +1,25 @@
+fn sum_to(n: i32) -> i32 {
+  let s: i32 = 0;
+  for let i: i32 = 1; i <= n; i = i + 1 {
+    s = s + i;
+  }
+  return s;
+}
+
+fn fizzbuzz(n: i32) -> i32 {
+  let i: i32 = 1;
+  while i <= n {
+    if i == 15 { print(0); }
+    else { if i == 3  { print(-3); }
+    else { if i == 5  { print(-5); }
+    else { print(i); } } }
+    i = i + 1;
+  }
+  return 0;
+}
+
+fn main() -> i32 {
+  print(sum_to(10));
+  fizzbuzz(20);
+  return 0;
+}

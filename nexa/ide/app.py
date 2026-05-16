@@ -44,16 +44,6 @@ FONT_CODE_FALLBACK = ("Consolas", 11)
 FONT_UI  = ("Segoe UI", 10)
 
 OUTPUT_ORDER = ["Tokens", "AST", "Symbols", "HIR", "CFG", "ASM", "LLVM", "Timeline"]
-OUTPUT_ICONS = {
-    "Tokens":   "🔤",
-    "AST":      "🌳",
-    "Symbols":  "📋",
-    "HIR":      "📝",
-    "CFG":      "🔀",
-    "ASM":      "⚡",
-    "LLVM":     "🔷",
-    "Timeline": "⏱",
-}
 BOTTOM_TABS  = ["Problems", "OutputLog", "Run", "Trace"]
 
 LANG = {
@@ -403,7 +393,9 @@ class NexaStudio(tk.Tk):
         self.text_views: dict[str, tk.Text] = {}
         self.tables: dict[str, ttk.Treeview] = {}
         self.graph_canvases: dict[str, tk.Canvas] = {}
-        self.workspace_root = Path.cwd()
+        # Default to test/test1 sandbox if it exists, else cwd
+        _default_sandbox = Path(__file__).resolve().parent.parent.parent / "test" / "test1"
+        self.workspace_root = _default_sandbox if _default_sandbox.is_dir() else Path.cwd()
         self.file_tree_nodes: dict[str, Path] = {}
         self.definition_index: dict[str, tuple[Path | None, int, int, str]] = {}
         self.explorer_visible: bool = True
@@ -2397,57 +2389,41 @@ class NexaStudio(tk.Tk):
         parent.rowconfigure(1, weight=1)
         parent.columnconfigure(0, weight=1)
 
-        # ── Top row: group selector (same row as editor header) ──────────
-        tab_bar = ttk.Frame(parent, style="Panel.TFrame", padding=(10, 6))
+        # Tab visibility toolbar
+        tab_bar = ttk.Frame(parent, style="Toolbar.TFrame", padding=(8, 4))
         tab_bar.grid(row=0, column=0, sticky="ew")
 
         ttk.Label(tab_bar, text="View:", style="Dim.TLabel",
-                 foreground=FG_DIM).pack(side=tk.LEFT, padx=(0, 6))
+                 background=PANEL_2).pack(side=tk.LEFT, padx=(0, 6))
 
         self._tab_group_var = tk.StringVar(value="全部")
         self._tab_group_var.trace_add("write",
             lambda *_: self._apply_tab_visibility())
         group_cb = ttk.Combobox(tab_bar, textvariable=self._tab_group_var,
                                 values=("主要", "前端", "后端", "全部"),
-                                state="readonly", width=8)
+                                state="readonly", width=6)
         group_cb.pack(side=tk.LEFT)
 
-        # ── Main area: vertical icon column + content frame ───────────────
-        body = ttk.Frame(parent, style="Root.TFrame")
-        body.grid(row=1, column=0, sticky="nsew")
-        body.rowconfigure(0, weight=1)
-        body.columnconfigure(1, weight=1)
+        # Custom tab pickers (chips) for each output
+        ttk.Separator(tab_bar, orient=tk.VERTICAL).pack(
+            side=tk.LEFT, padx=8, fill=tk.Y)
 
-        # Vertical icon bar
-        icon_col = ttk.Frame(body, style="Toolbar.TFrame", width=38)
-        icon_col.grid(row=0, column=0, sticky="ns")
-        icon_col.pack_propagate(False)
-
-        # Content area where output_frames are swapped in/out
-        self._output_content = ttk.Frame(body, style="Root.TFrame")
-        self._output_content.grid(row=0, column=1, sticky="nsew")
-        self._output_content.rowconfigure(0, weight=1)
-        self._output_content.columnconfigure(0, weight=1)
-
-        # Create vertical tab buttons
-        self._output_buttons: dict[str, tk.Button] = {}
         self._tab_visible_vars: dict[str, tk.BooleanVar] = {}
-        self._active_output: str | None = None
-
         for name in OUTPUT_ORDER:
-            var = tk.BooleanVar(value=True)
+            var = tk.BooleanVar(value=False)
+            var.trace_add("write",
+                lambda *_, n=name: self._apply_tab_visibility(manual=True))
             self._tab_visible_vars[name] = var
-            btn = tk.Button(
-                icon_col, text=OUTPUT_ICONS.get(name, "•"),
-                font=("Segoe UI", 14), fg=FG_DIM, bg=PANEL_2,
-                relief=tk.FLAT, padx=6, pady=8,
-                activebackground=ACCENT, activeforeground="#fff",
-                command=lambda n=name: self._show_output(n))
-            btn.pack(side=tk.TOP, fill=tk.X)
-            _Tooltip(btn, name)
-            self._output_buttons[name] = btn
+            cb = tk.Checkbutton(tab_bar, text=name, variable=var,
+                               bg=PANEL_2, fg=FG_DIM, selectcolor=PANEL_3,
+                               activebackground=PANEL_2, activeforeground=BLUE,
+                               relief=tk.FLAT, borderwidth=0,
+                               font=("Segoe UI", 8), padx=2)
+            cb.pack(side=tk.LEFT, padx=1)
 
-        # Create all output content frames (parented to _output_content)
+        self.notebook = ttk.Notebook(parent)
+        self.notebook.grid(row=1, column=0, sticky="nsew")
+
         self._add_table_tab("Tokens",   ("#", "Kind", "Lexeme", "Line:Col"),
                             (50, 120, 260, 90))
         self._add_graph_text_tab("AST")
@@ -2462,32 +2438,11 @@ class NexaStudio(tk.Tk):
                             (150, 90, 360))
 
         self._configure_code_tags()
-        # Apply initial visibility and show first available
+        # Apply initial visibility
         self.after(50, lambda: self._apply_tab_visibility())
-        self.after(60, lambda: self._show_output("AST"))
-
-    def _show_output(self, name: str) -> None:
-        frame = self.output_frames.get(name)
-        if frame is None:
-            return
-        # Hide all
-        for n, f in self.output_frames.items():
-            try:
-                f.grid_remove()
-            except tk.TclError:
-                pass
-        # Show selected
-        frame.grid(row=0, column=0, sticky="nsew")
-        self._active_output = name
-        # Update button highlight
-        for n, btn in self._output_buttons.items():
-            if n == name:
-                btn.configure(fg=BLUE, bg=PANEL_3)
-            else:
-                btn.configure(fg=FG_DIM, bg=PANEL_2)
 
     def _apply_tab_visibility(self, manual: bool = False) -> None:
-        if not hasattr(self, "_output_buttons"):
+        if not hasattr(self, "notebook"):
             return
 
         groups = {
@@ -2497,26 +2452,33 @@ class NexaStudio(tk.Tk):
             "全部":  set(OUTPUT_ORDER),
         }
 
-        group = self._tab_group_var.get()
-        visible = groups.get(group, groups["全部"])
+        if not manual:
+            group = self._tab_group_var.get()
+            target = groups.get(group, groups["全部"])
+            # Update checkboxes without re-triggering
+            for name, var in self._tab_visible_vars.items():
+                want = name in target
+                if var.get() != want:
+                    var.set(want)
+            return
 
-        # Show/hide vertical tab buttons
-        for name, btn in self._output_buttons.items():
+        # Build set of visible tabs from checkboxes
+        visible = {n for n, v in self._tab_visible_vars.items() if v.get()}
+        if not visible:
+            visible = {"AST"}
+
+        # Show/hide tabs
+        for name in OUTPUT_ORDER:
+            frame = self.output_frames.get(name)
+            if frame is None:
+                continue
             try:
-                btn.pack_forget()
+                if name in visible:
+                    self.notebook.add(frame, text=self._output_label(name))
+                else:
+                    self.notebook.hide(frame)
             except tk.TclError:
                 pass
-        for name in OUTPUT_ORDER:
-            if name in visible:
-                self._output_buttons[name].pack(side=tk.TOP, fill=tk.X)
-
-        # If currently active tab got hidden, pick first visible one
-        active = getattr(self, "_active_output", None)
-        if active not in visible:
-            for name in OUTPUT_ORDER:
-                if name in visible:
-                    self._show_output(name)
-                    break
 
     # ── bottom diagnostics ────────────────────────────────────────────────────
     def _build_diagnostics(self, parent: ttk.Frame) -> None:
@@ -2716,9 +2678,9 @@ class NexaStudio(tk.Tk):
             button.configure(text=self._t(key))
         for key, label in self.static_labels.items():
             label.configure(text=self._t(key))
-        if hasattr(self, "_output_buttons"):
-            for name, btn in self._output_buttons.items():
-                btn.configure(text=OUTPUT_ICONS.get(name, "•"))
+        if hasattr(self, "notebook"):
+            for name, frame in self.output_frames.items():
+                self.notebook.tab(frame, text=self._output_label(name))
         if hasattr(self, "bottom_notebook"):
             for name, frame in self.bottom_frames.items():
                 self.bottom_notebook.tab(frame, text=self._bottom_label(name))
@@ -2741,7 +2703,7 @@ class NexaStudio(tk.Tk):
 
     # ── tab helpers ───────────────────────────────────────────────────────────
     def _add_text_tab(self, name: str) -> None:
-        frame = ttk.Frame(self._output_content, style="Root.TFrame")
+        frame = ttk.Frame(self.notebook, style="Root.TFrame")
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
         text = tk.Text(
@@ -2756,11 +2718,12 @@ class NexaStudio(tk.Tk):
         text.grid(row=0, column=0, sticky="nsew")
         yscroll.grid(row=0, column=1, sticky="ns")
         xscroll.grid(row=1, column=0, sticky="ew")
+        self.notebook.add(frame, text=self._output_label(name))
         self.output_frames[name] = frame
         self.text_views[name] = text
 
     def _add_graph_text_tab(self, name: str) -> None:
-        frame = ttk.Frame(self._output_content, style="Root.TFrame")
+        frame = ttk.Frame(self.notebook, style="Root.TFrame")
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
         pane = ttk.PanedWindow(frame, orient=tk.VERTICAL)
@@ -2796,6 +2759,7 @@ class NexaStudio(tk.Tk):
         xscroll.grid(row=1, column=0, sticky="ew")
         pane.add(txt_frame, weight=1)
 
+        self.notebook.add(frame, text=self._output_label(name))
         self.output_frames[name] = frame
         self.text_views[name] = text
         self.graph_canvases[name] = canvas
@@ -2803,7 +2767,7 @@ class NexaStudio(tk.Tk):
 
     def _add_table_tab(self, name: str, columns: tuple[str, ...],
                        widths: tuple[int, ...]) -> None:
-        frame = ttk.Frame(self._output_content, style="Root.TFrame")
+        frame = ttk.Frame(self.notebook, style="Root.TFrame")
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
         table = ttk.Treeview(frame, columns=columns, show="headings")
@@ -2819,6 +2783,7 @@ class NexaStudio(tk.Tk):
         table.grid(row=0, column=0, sticky="nsew")
         yscroll.grid(row=0, column=1, sticky="ns")
         xscroll.grid(row=1, column=0, sticky="ew")
+        self.notebook.add(frame, text=self._output_label(name))
         self.output_frames[name] = frame
         self.tables[name] = table
 

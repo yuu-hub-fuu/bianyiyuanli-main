@@ -1,0 +1,13 @@
+import "math.nx";
+import "utils.nx" as u;
+
+fn main() -> i32 {
+  let a: i32 = 6;
+  let b: i32 = 7;
+  let s: i32 = add(a, b);
+  let p: i32 = mul(a, b);
+  print(s);
+  print(p);
+  print(square(a));
+  return 0;
+}

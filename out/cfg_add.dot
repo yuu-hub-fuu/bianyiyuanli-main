@@ -1,0 +1,3 @@
+digraph CFG {
+entry [shape=box,label="entry"];
+}
