@@ -517,6 +517,101 @@ class NexaStudio(tk.Tk):
                        bordercolor=[("selected", BLUE)])
         # PanedWindow
         self.style.configure("TPanedwindow", background=BORDER)
+        # Modern compact scrollbars
+        scrollbar_thumb = "#6bc9dc"
+        scrollbar_thumb_active = "#82def0"
+        scrollbar_trough = "#10161a"
+        for style_prefix in ("Modern.", ""):
+            for orient in ("Vertical", "Horizontal"):
+                sticky = "ns" if orient == "Vertical" else "ew"
+                try:
+                    self.style.layout(
+                        f"{style_prefix}{orient}.TScrollbar",
+                        [(f"{orient}.Scrollbar.trough", {
+                            "sticky": "nswe",
+                            "children": [(f"{orient}.Scrollbar.thumb", {
+                                "sticky": sticky,
+                            })],
+                        })],
+                    )
+                except tk.TclError:
+                    pass
+        self.style.configure(
+            "Modern.Vertical.TScrollbar",
+            background=scrollbar_thumb,
+            troughcolor=scrollbar_trough,
+            bordercolor=scrollbar_trough,
+            lightcolor=scrollbar_thumb,
+            darkcolor=scrollbar_thumb,
+            arrowcolor=scrollbar_trough,
+            width=10,
+            arrowsize=0,
+            gripcount=0,
+            relief="flat",
+        )
+        self.style.configure(
+            "Modern.Horizontal.TScrollbar",
+            background=scrollbar_thumb,
+            troughcolor=scrollbar_trough,
+            bordercolor=scrollbar_trough,
+            lightcolor=scrollbar_thumb,
+            darkcolor=scrollbar_thumb,
+            arrowcolor=scrollbar_trough,
+            width=10,
+            arrowsize=0,
+            gripcount=0,
+            relief="flat",
+        )
+        self.style.map(
+            "Modern.Vertical.TScrollbar",
+            background=[("active", scrollbar_thumb_active), ("pressed", scrollbar_thumb_active)],
+            troughcolor=[("active", scrollbar_trough)],
+            bordercolor=[("active", scrollbar_trough)],
+        )
+        self.style.map(
+            "Modern.Horizontal.TScrollbar",
+            background=[("active", scrollbar_thumb_active), ("pressed", scrollbar_thumb_active)],
+            troughcolor=[("active", scrollbar_trough)],
+            bordercolor=[("active", scrollbar_trough)],
+        )
+        self.style.configure(
+            "Vertical.TScrollbar",
+            background=scrollbar_thumb,
+            troughcolor=scrollbar_trough,
+            bordercolor=scrollbar_trough,
+            lightcolor=scrollbar_thumb,
+            darkcolor=scrollbar_thumb,
+            arrowcolor=scrollbar_trough,
+            width=10,
+            arrowsize=0,
+            gripcount=0,
+            relief="flat",
+        )
+        self.style.configure(
+            "Horizontal.TScrollbar",
+            background=scrollbar_thumb,
+            troughcolor=scrollbar_trough,
+            bordercolor=scrollbar_trough,
+            lightcolor=scrollbar_thumb,
+            darkcolor=scrollbar_thumb,
+            arrowcolor=scrollbar_trough,
+            width=10,
+            arrowsize=0,
+            gripcount=0,
+            relief="flat",
+        )
+        self.style.map(
+            "Vertical.TScrollbar",
+            background=[("active", scrollbar_thumb_active), ("pressed", scrollbar_thumb_active)],
+            troughcolor=[("active", scrollbar_trough)],
+            bordercolor=[("active", scrollbar_trough)],
+        )
+        self.style.map(
+            "Horizontal.TScrollbar",
+            background=[("active", scrollbar_thumb_active), ("pressed", scrollbar_thumb_active)],
+            troughcolor=[("active", scrollbar_trough)],
+            bordercolor=[("active", scrollbar_trough)],
+        )
         # Treeview
         self.style.configure("Treeview", background=BG, fieldbackground=BG,
                              foreground=FG, bordercolor=BORDER, rowheight=24,
@@ -1384,6 +1479,7 @@ class NexaStudio(tk.Tk):
 
         canvas = tk.Canvas(main_frame, bg=PANEL, highlightthickness=0, relief=tk.FLAT)
         canvas.grid(row=0, column=0, sticky="nsew")
+        self.git_panel_canvas = canvas
 
         scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=canvas.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
@@ -1404,11 +1500,23 @@ class NexaStudio(tk.Tk):
         canvas.bind("<Configure>", _on_canvas_configure)
 
         def _on_canvas_wheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)) * 3, "units")
+            canvas.yview_scroll(self._wheel_scroll_units(event), "units")
             return "break"
 
         canvas.bind("<MouseWheel>", _on_canvas_wheel)
         self._build_git_normal_ui()
+
+    def _wheel_scroll_units(self, event, speed: int = 1) -> int:
+        if getattr(event, "num", None) == 4:
+            return -speed
+        if getattr(event, "num", None) == 5:
+            return speed
+        delta = getattr(event, "delta", 0)
+        if delta > 0:
+            return -speed
+        if delta < 0:
+            return speed
+        return 0
 
     def _clear_git_content(self) -> None:
         for child in self.git_content.winfo_children():
@@ -2373,17 +2481,17 @@ class NexaStudio(tk.Tk):
         canvas_container.columnconfigure(0, weight=1)
 
         self.git_graph_canvas = tk.Canvas(
-            canvas_container, bg=BG, highlightthickness=0, height=300)
+            canvas_container, bg=BG, highlightthickness=0, height=220)
         self.git_graph_canvas.grid(row=0, column=0, sticky="nsew")
-        gscroll = ttk.Scrollbar(canvas_container, orient=tk.VERTICAL,
-                               command=self.git_graph_canvas.yview)
-        gscroll.grid(row=0, column=1, sticky="ns")
-        self.git_graph_canvas.configure(yscrollcommand=gscroll.set)
         self.git_graph_canvas.bind("<MouseWheel>", self._scroll_git_graph)
+        self.git_graph_canvas.bind("<Button-4>", self._scroll_git_graph)
+        self.git_graph_canvas.bind("<Button-5>", self._scroll_git_graph)
         self.git_graph_canvas.bind("<Button-1>", self._select_git_graph_commit)
 
     def _scroll_git_graph(self, event) -> str:
-        self.git_graph_canvas.yview_scroll(int(-1 * (event.delta / 120)) * 3, "units")
+        target = getattr(self, "git_panel_canvas", None)
+        if target is not None:
+            target.yview_scroll(self._wheel_scroll_units(event), "units")
         return "break"
 
     def _select_git_graph_commit(self, event) -> str:
@@ -2579,6 +2687,7 @@ class NexaStudio(tk.Tk):
                 self.git_graph_commits = []
                 canvas.create_text(14, 18, anchor="nw", text="No commit history",
                                   fill=FG_DIM, font=("Segoe UI", 9))
+                canvas.configure(height=120, scrollregion=(0, 0, 260, 120))
                 return
 
             commits = []
@@ -2602,7 +2711,7 @@ class NexaStudio(tk.Tk):
                 self.git_graph_commits = []
                 canvas.create_text(14, 18, anchor="nw", text="No commits",
                                   fill=FG_DIM, font=("Segoe UI", 9))
-                canvas.configure(scrollregion=(0, 0, 220, 80))
+                canvas.configure(height=120, scrollregion=(0, 0, 220, 120))
                 return
 
             sha_to_idx = {commit["sha"]: idx for idx, commit in enumerate(commits)}
@@ -2696,11 +2805,21 @@ class NexaStudio(tk.Tk):
                                   fill=FG_DIM, font=("Segoe UI", 8))
 
             total_h = 16 + len(commits) * row_h + 20
-            canvas.configure(scrollregion=(0, 0, max(canvas_w, text_x + 260), total_h))
+            visible_h = max(120, total_h)
+            canvas.configure(
+                height=visible_h,
+                scrollregion=(0, 0, max(canvas_w, text_x + 260), visible_h),
+            )
+            if hasattr(self, "git_content"):
+                self.git_content.update_idletasks()
+            if hasattr(self, "git_panel_canvas"):
+                self.git_panel_canvas.configure(
+                    scrollregion=self.git_panel_canvas.bbox("all"))
         except Exception as e:
             canvas.create_text(14, 18, anchor="nw",
                               text=f"Graph error: {e}",
                               fill=RED, font=("Segoe UI", 9))
+            canvas.configure(height=120, scrollregion=(0, 0, 260, 120))
 
     def _compact_git_refs(self, refs: str) -> list[str]:
         cleaned: list[str] = []
