@@ -375,8 +375,14 @@ class NexaStudio(tk.Tk):
         self.git_repo_root: Path | None = None
         self.git_status: dict = {}
         self.git_branch: str = ""
+        self.git_error: str = ""
         self.git_panel_mode: str = ""
         self.git_operation_buttons: list[ttk.Button] = []
+        self.git_home_branch: str = ""
+        self.git_selected_commit: str = ""
+        self.git_selected_commit_short: str = ""
+        self.git_graph_commits: list[dict] = []
+        self.git_graph_row_h: int = 22
 
         self.code_font = self._choose_code_font()
         self.lang = tk.StringVar(value="zh")
@@ -1451,9 +1457,8 @@ class NexaStudio(tk.Tk):
         btn_frame = ttk.Frame(sec, style="Panel.TFrame")
         btn_frame.pack(fill=tk.X, pady=(0, 4))
         actions = (
-            ("↓ Pull", self._git_pull),
-            ("↑ Push", self._git_push),
-            ("↻ Sync", self._git_sync),
+            ("Pull", self._git_pull),
+            ("Refresh", self._git_sync),
         )
         for idx, (text, command) in enumerate(actions):
             btn_frame.columnconfigure(idx, weight=1, uniform="git_actions")
@@ -1555,6 +1560,10 @@ class NexaStudio(tk.Tk):
             self._detect_git_repo()
             if not self.git_repo_root:
                 self._show_git_init_ui()
+                if (self.git_error and hasattr(self, "git_branch_label")
+                        and self.git_branch_label.winfo_exists()):
+                    self.git_branch_label.configure(
+                        text=self.git_error[:60], foreground=RED)
                 return
 
             if (self.git_panel_mode != "normal"
@@ -1563,29 +1572,31 @@ class NexaStudio(tk.Tk):
                 self._build_git_normal_ui()
 
             # Get current branch
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "rev-parse", "--abbrev-ref", "HEAD"],
-                capture_output=True, text=True, timeout=5, check=False)
+            result = self._run_git("branch", "--show-current")
             if result.returncode == 0:
                 branch = result.stdout.strip()
-                self.git_branch = branch
-                self.git_branch_label.configure(text=branch, foreground=BLUE)
+                if branch:
+                    self.git_branch = branch
+                    self.git_home_branch = branch
+                    self.git_branch_label.configure(text=branch, foreground=BLUE)
+                else:
+                    head = self._git_output("rev-parse", "--short", "HEAD") or "HEAD"
+                    self.git_branch = "HEAD"
+                    self.git_branch_label.configure(
+                        text=f"detached {head}", foreground=YELLOW)
             else:
-                self.git_branch_label.configure(
-                    text=self._t("git_no_repo"), foreground=RED)
-                if hasattr(self, "git_content"):
-                    self._show_git_init_ui()
-                return
+                error = (result.stderr or result.stdout or "Git branch failed").strip()
+                self.git_branch_label.configure(text=error[:60], foreground=RED)
 
             # Get commits ahead/behind
             self._update_commits_info()
 
             # Get file status
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "status", "--porcelain"],
-                capture_output=True, text=True, timeout=5, check=False)
+            result = self._run_git("status", "--porcelain")
             if result.returncode == 0:
                 self._render_git_changes(result.stdout)
+            elif hasattr(self, "git_tree"):
+                self._render_git_changes_error(result.stderr or result.stdout or "Git status failed")
 
             # Refresh commit graph
             self._refresh_git_graph()
@@ -1599,27 +1610,68 @@ class NexaStudio(tk.Tk):
                 self.git_branch_label.configure(
                     text=f"Error: {str(e)[:30]}", foreground=RED)
 
+    def _git_cmd(self, *args: str) -> list[str]:
+        root = self.git_repo_root or self.workspace_root
+        safe_root = root.resolve().as_posix()
+        return [
+            "git",
+            "-c", f"safe.directory={safe_root}",
+            "-c", "core.quotepath=false",
+            "-C", str(root),
+            *args,
+        ]
+
+    def _run_git(self, *args: str, timeout: int = 5) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            self._git_cmd(*args),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
+        )
+
+    def _git_output(self, *args: str, timeout: int = 5) -> str:
+        try:
+            result = self._run_git(*args, timeout=timeout)
+        except Exception:
+            return ""
+        if result.returncode != 0:
+            return ""
+        return result.stdout.strip()
+
+    def _git_worktree_dirty(self) -> bool:
+        return bool(self._git_output("status", "--porcelain"))
+
     def _detect_git_repo(self) -> None:
+        self.git_error = ""
+        workspace = self.workspace_root.resolve()
+        if not (workspace / ".git").exists():
+            self.git_repo_root = None
+            return
+        self.git_repo_root = workspace
+
         try:
             result = subprocess.run(
-                ["git", "-C", str(self.workspace_root), "rev-parse", "--show-toplevel"],
-                capture_output=True, text=True, timeout=5, check=False)
-            if result.returncode == 0 and result.stdout.strip():
-                self.git_repo_root = Path(result.stdout.strip()).resolve()
+                ["git", "-c", f"safe.directory={workspace.as_posix()}",
+                 "-c", "core.quotepath=false",
+                 "-C", str(workspace), "status", "--porcelain"],
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=5, check=False)
+            if result.returncode == 0:
+                return
+            else:
+                self.git_error = (result.stderr or result.stdout or "Git repository check failed").strip()
                 return
         except FileNotFoundError:
             self.git_repo_root = None
+            self.git_error = "Git not found"
             return
 
-        current = self.workspace_root.resolve()
-        for _ in range(10):
-            if (current / ".git").exists():
-                self.git_repo_root = current
-                return
-            if current.parent == current:
-                break
-            current = current.parent
-        self.git_repo_root = None
+        # .git exists, so keep the panel in repository mode even if verification
+        # has a non-fatal complaint. Individual commands will surface real errors.
+        self.git_repo_root = workspace
 
     def _ensure_git_repo(self) -> bool:
         self._detect_git_repo()
@@ -1632,28 +1684,15 @@ class NexaStudio(tk.Tk):
     def _update_commits_info(self) -> None:
         if not self.git_repo_root:
             return
-        try:
-            # Get ahead/behind count
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "rev-list", "--left-right", "--count",
-                 "HEAD...@{u}"],
-                capture_output=True, text=True, timeout=5, check=False)
-            if result.returncode == 0:
-                ahead, behind = result.stdout.strip().split()
-                ahead, behind = int(ahead), int(behind)
-                if ahead > 0 or behind > 0:
-                    status = ""
-                    if ahead > 0:
-                        status += f"↑{ahead} "
-                    if behind > 0:
-                        status += f"↓{behind}"
-                    if hasattr(self, "git_status_label"):
-                        self.git_status_label.configure(text=status.strip())
-                else:
-                    if hasattr(self, "git_status_label"):
-                        self.git_status_label.configure(text="")
-        except Exception:
-            pass
+        if not hasattr(self, "git_status_label"):
+            return
+        if self.git_selected_commit_short:
+            self.git_status_label.configure(text=f"selected {self.git_selected_commit_short}")
+        elif self.git_branch == "HEAD":
+            head = self._git_output("rev-parse", "--short", "HEAD")
+            self.git_status_label.configure(text=f"detached {head}" if head else "")
+        else:
+            self.git_status_label.configure(text="")
 
     def _render_git_changes(self, output: str) -> None:
         self.git_tree.delete(*self.git_tree.get_children())
@@ -1684,6 +1723,11 @@ class NexaStudio(tk.Tk):
             filename = Path(path).name
             self.git_tree.insert("", tk.END, text=filename, values=(status_text,), tag=tag)
 
+    def _render_git_changes_error(self, message: str) -> None:
+        self.git_tree.delete(*self.git_tree.get_children())
+        text = "Git error: " + message.strip().splitlines()[0][:90]
+        self.git_tree.insert("", tk.END, text=text, values=("",), tag="deleted")
+
     def _git_commit(self) -> None:
         if not self._ensure_git_repo():
             return
@@ -1693,10 +1737,29 @@ class NexaStudio(tk.Tk):
             messagebox.showwarning("Warning", "Please enter a commit message")
             return
 
+        # Detached HEAD: commits made here are orphaned when switching away.
+        # Require a branch name so the commit is reachable.
+        if self.git_branch == "HEAD":
+            from tkinter import simpledialog
+            branch_name = simpledialog.askstring(
+                "创建分支" if self._t("git_branch") == "当前分支" else "Create Branch",
+                ("您处于游离 HEAD 状态，提交后切换版本时该提交将丢失。\n"
+                 "请输入新分支名称以保留本次提交：")
+                if self._t("git_branch") == "当前分支" else
+                ("You are in detached HEAD mode. Commits here are lost when switching.\n"
+                 "Enter a branch name to preserve this commit:"))
+            if not branch_name or not branch_name.strip():
+                return
+            r = self._run_git("checkout", "-b", branch_name.strip())
+            if r.returncode != 0:
+                messagebox.showerror("Error", r.stderr or "Could not create branch")
+                return
+            self.git_branch = branch_name.strip()
+            if hasattr(self, "git_branch_label") and self.git_branch_label.winfo_exists():
+                self.git_branch_label.configure(text=branch_name.strip(), foreground=BLUE)
+
         try:
-            status = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "status", "--porcelain"],
-                capture_output=True, text=True, timeout=5, check=False)
+            status = self._run_git("status", "--porcelain")
             if status.returncode != 0:
                 messagebox.showerror("Error", status.stderr or "Git status failed")
                 return
@@ -1706,17 +1769,13 @@ class NexaStudio(tk.Tk):
                 return
 
             # Stage all changes
-            add_result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "add", "-A"],
-                capture_output=True, text=True, timeout=5, check=False)
+            add_result = self._run_git("add", "-A")
             if add_result.returncode != 0:
                 messagebox.showerror("Error", add_result.stderr or "Git add failed")
                 return
 
             # Commit
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "commit", "-m", msg],
-                capture_output=True, text=True, timeout=5, check=False)
+            result = self._run_git("commit", "-m", msg)
 
             if result.returncode == 0:
                 self._set_git_msg_placeholder()
@@ -1731,56 +1790,94 @@ class NexaStudio(tk.Tk):
     def _git_push(self) -> None:
         if not self._ensure_git_repo():
             return
-
-        try:
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "push"],
-                capture_output=True, text=True, timeout=15, check=False)
-            self._refresh_git_status()
-            if result.returncode == 0:
-                messagebox.showinfo("Success", "Push successful")
-            else:
-                error = result.stderr if result.stderr else "Push failed"
-                messagebox.showerror("Error", error)
-        except Exception as e:
-            messagebox.showerror("Error", f"Push failed: {str(e)}")
+        self._refresh_git_status()
+        messagebox.showinfo("Git", "Push is disabled for local-only version management")
 
     def _git_pull(self) -> None:
         if not self._ensure_git_repo():
             return
 
+        if not self.git_selected_commit:
+            messagebox.showwarning("Git", "Select a version in the graph first")
+            return
+
         try:
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "pull"],
-                capture_output=True, text=True, timeout=15, check=False)
+            if self._git_worktree_dirty():
+                messagebox.showwarning(
+                    "Git", "Commit or clear local changes before switching versions")
+                return
+
+            # Guard: if detached HEAD has unreachable commits, offer to save them first.
+            if self.git_branch == "HEAD":
+                orphaned = self._git_output(
+                    "log", "HEAD", "--not", "--branches", "--not", "--tags", "--oneline")
+                if orphaned:
+                    count = len(orphaned.splitlines())
+                    zh = self._t("git_branch") == "当前分支"
+                    warn_msg = (
+                        f"当前游离 HEAD 有 {count} 个提交将在切换后丢失，是否先创建分支保留它们？"
+                        if zh else
+                        f"You have {count} commit(s) on detached HEAD that will be lost. "
+                        "Create a branch to preserve them?")
+                    answer = messagebox.askyesnocancel("Git", warn_msg)
+                    if answer is None:
+                        return
+                    if answer:
+                        from tkinter import simpledialog
+                        branch_name = simpledialog.askstring(
+                            "创建分支" if zh else "Create Branch",
+                            "新分支名称：" if zh else "New branch name:")
+                        if not branch_name or not branch_name.strip():
+                            return
+                        r = self._run_git("branch", branch_name.strip())
+                        if r.returncode != 0:
+                            messagebox.showerror("Error", r.stderr or "Could not create branch")
+                            return
+
+            selected = self._selected_git_commit()
+            branch = self._target_branch_from_selected_commit(selected)
+            if branch:
+                result = self._run_git("switch", branch, timeout=15)
+                action = f"Switched to local branch {branch}"
+            else:
+                result = self._run_git(
+                    "checkout", "--detach", self.git_selected_commit, timeout=15)
+                action = f"Switched to local version {self.git_selected_commit_short}"
             self._refresh_git_status()
             if result.returncode == 0:
-                messagebox.showinfo("Success", "Pull successful")
+                self._refresh_explorer()
+                self._reload_current_file_from_disk()
+                messagebox.showinfo("Success", action)
             else:
-                messagebox.showerror("Error", result.stderr or "Pull failed")
+                messagebox.showerror("Error", result.stderr or "Switch failed")
         except Exception as e:
-            messagebox.showerror("Error", f"Pull failed: {str(e)}")
+            messagebox.showerror("Error", f"Switch failed: {str(e)}")
 
     def _git_sync(self) -> None:
         if not self._ensure_git_repo():
             return
 
         try:
-            # Pull first
-            subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "pull"],
-                capture_output=True, timeout=15, check=False)
-            # Then push
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "push"],
-                capture_output=True, text=True, timeout=15, check=False)
             self._refresh_git_status()
-            if result.returncode == 0:
-                messagebox.showinfo("Success", "Sync successful")
-            else:
-                messagebox.showerror("Error", result.stderr or "Sync failed")
+            messagebox.showinfo("Success", "Local git status refreshed")
         except Exception as e:
-            messagebox.showerror("Error", f"Sync failed: {str(e)}")
+            messagebox.showerror("Error", f"Refresh failed: {str(e)}")
+
+    def _selected_git_commit(self) -> dict | None:
+        for commit in getattr(self, "git_graph_commits", []):
+            if commit.get("sha") == self.git_selected_commit:
+                return commit
+        return None
+
+    def _target_branch_from_selected_commit(self, selected: dict | None) -> str:
+        if not selected:
+            return ""
+        branches = selected.get("branches") or []
+        if len(branches) > 1 and self.git_branch in branches:
+            for branch in branches:
+                if branch != self.git_branch:
+                    return branch
+        return branches[0] if branches else ""
 
     def _show_git_init_ui(self) -> None:
         if self.git_panel_mode == "init":
@@ -1802,18 +1899,40 @@ class NexaStudio(tk.Tk):
 
     def _git_init_repo(self) -> None:
         try:
-            result = subprocess.run(
-                ["git", "init"],
-                cwd=str(self.workspace_root),
-                capture_output=True, text=True, timeout=5, check=False)
+            target = self.workspace_root.resolve()
+            if (target / ".git").exists():
+                self.git_repo_root = target
+                self._build_git_normal_ui()
+                self._refresh_git_status()
+                messagebox.showinfo("Success", "Repository already initialized")
+                return
 
-            if result.returncode == 0:
-                self.git_repo_root = self.workspace_root
+            result = subprocess.run(
+                ["git", "init", str(target)],
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=5, check=False)
+
+            if result.returncode == 0 and (target / ".git").exists():
+                verify = subprocess.run(
+                    ["git", "-c", f"safe.directory={target.as_posix()}",
+                     "-c", "core.quotepath=false",
+                     "-C", str(target), "status", "--porcelain"],
+                    capture_output=True, text=True, encoding="utf-8",
+                    errors="replace", timeout=5, check=False)
+                if verify.returncode != 0:
+                    messagebox.showerror(
+                        "Error",
+                        verify.stderr or "Repository was not initialized in the current workspace")
+                    return
+                self.git_repo_root = target
                 self._build_git_normal_ui()
                 self._refresh_git_status()
                 messagebox.showinfo("Success", "Repository initialized")
             else:
-                messagebox.showerror("Error", result.stderr or "Init failed")
+                detail = result.stderr or result.stdout or "Init failed"
+                if result.returncode == 0:
+                    detail = "Git reported success, but .git was not created in the current workspace"
+                messagebox.showerror("Error", detail)
         except Exception as e:
             messagebox.showerror("Error", f"Init failed: {str(e)}")
 
@@ -2243,12 +2362,10 @@ class NexaStudio(tk.Tk):
         ttk.Label(toolbar, text="⌄ GRAPH",
                   font=("Segoe UI", 9, "bold"),
                   foreground=FG_DIM, style="Dim.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Button(toolbar, text="↓", width=3, style="Small.TButton",
+        ttk.Button(toolbar, text="Pull", width=6, style="Small.TButton",
                    command=self._git_pull).grid(row=0, column=1, padx=1)
-        ttk.Button(toolbar, text="↑", width=3, style="Small.TButton",
-                   command=self._git_push).grid(row=0, column=2, padx=1)
-        ttk.Button(toolbar, text="↻", width=3, style="Small.TButton",
-                   command=self._refresh_git_status).grid(row=0, column=3, padx=1)
+        ttk.Button(toolbar, text="Refresh", width=8, style="Small.TButton",
+                   command=self._refresh_git_status).grid(row=0, column=2, padx=1)
 
         canvas_container = ttk.Frame(graph_frame, style="Panel.TFrame")
         canvas_container.grid(row=1, column=0, sticky="nsew")
@@ -2263,9 +2380,28 @@ class NexaStudio(tk.Tk):
         gscroll.grid(row=0, column=1, sticky="ns")
         self.git_graph_canvas.configure(yscrollcommand=gscroll.set)
         self.git_graph_canvas.bind("<MouseWheel>", self._scroll_git_graph)
+        self.git_graph_canvas.bind("<Button-1>", self._select_git_graph_commit)
 
     def _scroll_git_graph(self, event) -> str:
         self.git_graph_canvas.yview_scroll(int(-1 * (event.delta / 120)) * 3, "units")
+        return "break"
+
+    def _select_git_graph_commit(self, event) -> str:
+        if not getattr(self, "git_graph_commits", None):
+            return "break"
+        y = self.git_graph_canvas.canvasy(event.y)
+        idx = round((y - 16) / max(self.git_graph_row_h, 1))
+        if idx < 0 or idx >= len(self.git_graph_commits):
+            return "break"
+        row_y = 16 + idx * self.git_graph_row_h
+        if abs(y - row_y) > self.git_graph_row_h // 2:
+            return "break"
+        commit = self.git_graph_commits[idx]
+        self.git_selected_commit = commit["sha"]
+        self.git_selected_commit_short = commit["short"]
+        if hasattr(self, "git_status_label") and self.git_status_label.winfo_exists():
+            self.git_status_label.configure(text=f"selected {commit['short']}")
+        self._refresh_git_graph()
         return "break"
 
     def _refresh_git_graph_legacy(self) -> None:
@@ -2280,7 +2416,8 @@ class NexaStudio(tk.Tk):
                 ["git", "-C", str(self.git_repo_root), "log",
                  "--all", "--pretty=format:%h\x1f%s\x1f%an\x1f%P\x1f%d",
                  "-30"],
-                capture_output=True, text=True, timeout=5, check=False)
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=5, check=False)
             if result.returncode != 0:
                 return
 
@@ -2433,11 +2570,13 @@ class NexaStudio(tk.Tk):
         canvas.delete("all")
 
         try:
-            result = subprocess.run(
-                ["git", "-C", str(self.git_repo_root), "log", "--all",
-                 "--pretty=format:%H%x1f%h%x1f%s%x1f%an%x1f%P%x1f%D", "-60"],
-                capture_output=True, text=True, timeout=5, check=False)
+            result = self._run_git(
+                "log", "--all",
+                "--pretty=format:%H%x1f%h%x1f%s%x1f%an%x1f%P%x1f%D",
+                "-60",
+            )
             if result.returncode != 0:
+                self.git_graph_commits = []
                 canvas.create_text(14, 18, anchor="nw", text="No commit history",
                                   fill=FG_DIM, font=("Segoe UI", 9))
                 return
@@ -2455,15 +2594,21 @@ class NexaStudio(tk.Tk):
                     "author": author or "Unknown",
                     "parents": parents.split() if parents else [],
                     "refs": parts[5].strip() if len(parts) > 5 else "",
+                    "branches": self._local_git_branch_refs(
+                        parts[5].strip() if len(parts) > 5 else ""),
                 })
 
             if not commits:
+                self.git_graph_commits = []
                 canvas.create_text(14, 18, anchor="nw", text="No commits",
                                   fill=FG_DIM, font=("Segoe UI", 9))
                 canvas.configure(scrollregion=(0, 0, 220, 80))
                 return
 
             sha_to_idx = {commit["sha"]: idx for idx, commit in enumerate(commits)}
+            if self.git_selected_commit and self.git_selected_commit not in sha_to_idx:
+                self.git_selected_commit = ""
+                self.git_selected_commit_short = ""
             lanes: dict[int, int] = {}
             active_lanes: dict[int, str] = {}
 
@@ -2489,6 +2634,8 @@ class NexaStudio(tk.Tk):
                         active_lanes[find_free_lane()] = extra_parent
 
             row_h = 22
+            self.git_graph_commits = commits
+            self.git_graph_row_h = row_h
             col_w = 12
             x_offset = 10
             max_lane = max(lanes.values())
@@ -2497,6 +2644,13 @@ class NexaStudio(tk.Tk):
             max_chars = max(10, int((canvas_w - text_x - 46) / 7))
             colors = ["#4db8ff", "#52d97f", "#dcdcaa", "#ff9966", "#d99dff",
                       "#ff5555", "#86d4ff", "#b5cea8"]
+
+            for idx, commit in enumerate(commits):
+                if commit["sha"] == self.git_selected_commit:
+                    y = 16 + idx * row_h
+                    canvas.create_rectangle(
+                        0, y - row_h // 2, canvas_w + 500, y + row_h // 2,
+                        fill="#2d3f50", outline="")
 
             for idx, commit in enumerate(commits):
                 lane_i = lanes[idx]
@@ -2528,8 +2682,8 @@ class NexaStudio(tk.Tk):
 
                 tx = text_x
                 refs = self._compact_git_refs(commit["refs"])
-                if refs:
-                    tx = self._draw_git_ref_badge(canvas, tx, y, refs[0]) + 5
+                for ref in refs[:3]:
+                    tx = self._draw_git_ref_badge(canvas, tx, y, ref) + 5
 
                 msg = commit["msg"]
                 if len(msg) > max_chars:
@@ -2562,7 +2716,21 @@ class NexaStudio(tk.Tk):
                 ref = ref[5:].strip()
             if ref and ref not in cleaned:
                 cleaned.append(ref)
-        return cleaned[:2]
+        return cleaned[:3]
+
+    def _local_git_branch_refs(self, refs: str) -> list[str]:
+        branches: list[str] = []
+        for ref in refs.split(","):
+            ref = ref.strip()
+            if not ref:
+                continue
+            if "HEAD ->" in ref:
+                ref = ref.split("HEAD ->", 1)[1].strip()
+            if ref.startswith(("origin/", "tag: ")) or ref == "HEAD":
+                continue
+            if ref and ref not in branches:
+                branches.append(ref)
+        return branches
 
     def _draw_git_ref_badge(self, canvas: tk.Canvas, x: int, y: int, text: str) -> int:
         label = f" {text} "
@@ -3250,8 +3418,12 @@ class NexaStudio(tk.Tk):
         if not path:
             return
         self.workspace_root = Path(path)
+        self.git_repo_root = None
+        self.git_error = ""
         self._show_explorer()
         self._refresh_explorer()
+        if self._left_panel_mode == "source_control":
+            self._refresh_git_status()
         self.status_left.configure(
             text=f"{self._t('open_folder')}: {self.workspace_root}")
 
@@ -3285,6 +3457,7 @@ class NexaStudio(tk.Tk):
                                      encoding="utf-8")
         self.status_left.configure(
             text=f"{self._t('save')}: {self.current_file.name}")
+        self._refresh_git_after_file_change()
 
     def save_file_as(self) -> None:
         path = filedialog.asksaveasfilename(
@@ -3295,6 +3468,28 @@ class NexaStudio(tk.Tk):
         self.current_file = Path(path)
         self.file_label.configure(text=str(self.current_file))
         self.save_file()
+
+    def _refresh_git_after_file_change(self) -> None:
+        if hasattr(self, "git_content"):
+            self.after_idle(self._refresh_git_status)
+
+    def _reload_current_file_from_disk(self) -> None:
+        if not self.current_file or not self.current_file.exists():
+            return
+        try:
+            text = self.current_file.read_text(encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            try:
+                text = self.current_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                return
+        except OSError:
+            return
+        self.editor.delete("1.0", tk.END)
+        self.editor.insert("1.0", text)
+        self.file_label.configure(text=str(self.current_file))
+        self._highlight_source()
+        self._refresh_open_editors()
 
     def export_report(self) -> None:
         if self.last_result is None:

@@ -9,5 +9,5 @@ fn main() -> i32 {
   print(s);
   print(p);
   print(square(a));
-  return 0;
+  return 0+1+1;
 }
